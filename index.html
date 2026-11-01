@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maths worksheet</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Comic Sans MS", "Trebuchet MS", Arial, sans-serif;
+    background: #eef1f5;
+    color: #111;
+  }
+  .toolbar {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    padding: 16px;
+  }
+  button {
+    font: inherit;
+    font-size: 16px;
+    padding: 10px 22px;
+    border: 0;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #fff;
+    cursor: pointer;
+  }
+  button.secondary { background: #059669; }
+  .toolbar { flex-wrap: wrap; align-items: center; }
+  .ops { display: flex; gap: 6px; }
+  .ops button {
+    width: 44px; padding: 10px 0; font-size: 20px;
+    background: #cbd5e1; color: #334155;
+  }
+  .ops button[aria-pressed="true"] { background: #2563eb; color: #fff; }
+  .max { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .max input {
+    font: inherit; width: 90px; padding: 8px 10px;
+    border: 1px solid #94a3b8; border-radius: 8px;
+  }
+  button:hover { filter: brightness(1.1); }
+
+  .page {
+    width: 210mm;
+    height: 297mm;
+    margin: 0 auto 24px;
+    padding: 12mm 15mm;
+    background: #fff;
+    box-shadow: 0 2px 12px rgba(0,0,0,.2);
+    display: flex;
+    flex-direction: column;
+  }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14pt;
+    margin-bottom: 6mm;
+  }
+  .head span { border-bottom: 1px solid #111; min-width: 60mm; display: inline-block; }
+  .grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(10, 1fr);
+    gap: 0 6mm;
+  }
+  .eq {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.2mm;
+    font-size: 17pt;
+    white-space: nowrap;
+  }
+  .box {
+    display: inline-block;
+    width: 11mm;
+    height: 11mm;
+    border: 1.5px solid #111;
+    border-radius: 2px;
+  }
+
+  @page { size: A4; margin: 0; }
+  @media print {
+    body { background: #fff; }
+    .toolbar { display: none; }
+    .page { margin: 0; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="ops" id="ops" role="group" aria-label="Operations">
+      <button type="button" data-op="+" aria-pressed="true" title="Addition">+</button>
+      <button type="button" data-op="−" aria-pressed="true" title="Subtraction">−</button>
+      <button type="button" data-op="×" aria-pressed="true" title="Multiplication">×</button>
+      <button type="button" data-op="÷" aria-pressed="true" title="Division">÷</button>
+    </div>
+    <label class="max">Max result
+      <input type="number" id="max" value="100" min="1" max="100000" step="1">
+    </label>
+    <button id="gen">Generate</button>
+    <button id="print" class="secondary">Print</button>
+  </div>
+
+  <div class="page">
+    <div class="head"><div>Name: <span></span></div><div>Date: <span style="min-width:35mm"></span></div></div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+<script>
+const ROWS = 10, COLS = 3;
+let MAX = 100;
+const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+const opButtons = [...document.querySelectorAll('#ops button')];
+const maxInput = document.getElementById('max');
+const activeOps = () => opButtons.filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.op);
+
+// Returns {a, op, b, c} meaning a op b = c, all values within 0..MAX
+function makeEquation(op) {
+  // Factor limit for × and ÷: 10 up to MAX 100, grows with sqrt(MAX) beyond
+  const F = Math.max(10, Math.round(Math.sqrt(MAX)));
+  const lo = MAX >= 4 ? 2 : 1;
+  switch (op) {
+    case '+': {
+      const a = rnd(0, MAX), b = rnd(0, MAX - a);
+      return { a, op: '+', b, c: a + b };
+    }
+    case '−': {
+      const a = rnd(0, MAX), b = rnd(0, a);
+      return { a, op: '−', b, c: a - b };
+    }
+    case '×': {
+      const a = rnd(lo, Math.min(F, MAX)), b = rnd(lo, Math.max(lo, Math.min(F, Math.floor(MAX / a))));
+      return { a, op: '×', b, c: a * b };
+    }
+    default: {
+      const b = rnd(lo, Math.min(F, MAX)), c = rnd(1, Math.max(1, Math.min(F, Math.floor(MAX / b))));
+      return { a: b * c, op: '÷', b, c };
+    }
+  }
+}
+
+function render(e) {
+  // Hide the result (after =) or one of the operands (in the middle / start)
+  const hide = pick(['c', 'c', 'b', 'a']);
+  const box = '<span class="box"></span>';
+  const part = k => (k === hide ? box : e[k]);
+  return `${part('a')} <span>${e.op}</span> ${part('b')} <span>=</span> ${part('c')}`;
+}
+
+function generate() {
+  const v = parseInt(maxInput.value, 10);
+  MAX = Math.min(100000, Math.max(1, Number.isFinite(v) ? v : 100));
+  maxInput.value = MAX;
+  const ops = activeOps();
+  const seen = new Set();
+  const cells = [];
+  let tries = 0;
+  while (cells.length < ROWS * COLS) {
+    const e = makeEquation(pick(ops));
+    const key = `${e.a}${e.op}${e.b}`;
+    // Avoid duplicates, but give up after many tries (small MAX has few combinations)
+    if (seen.has(key) && ++tries < 500) continue;
+    seen.add(key);
+    cells.push(`<div class="eq">${render(e)}</div>`);
+  }
+  document.getElementById('grid').innerHTML = cells.join('');
+}
+
+opButtons.forEach(b => b.addEventListener('click', () => {
+  const on = b.getAttribute('aria-pressed') === 'true';
+  if (on && activeOps().length === 1) return; // keep at least one operation selected
+  b.setAttribute('aria-pressed', String(!on));
+}));
+document.getElementById('gen').addEventListener('click', generate);
+document.getElementById('print').addEventListener('click', () => window.print());
+generate();
+</script>
+</body>
+</html>
