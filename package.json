@@ -1,0 +1,11 @@
+{
+  "name": "matemko",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler d1 migrations apply matemko --local && wrangler dev",
+    "deploy": "wrangler d1 migrations apply matemko --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.156.0"
+  }
+}

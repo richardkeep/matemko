@@ -11,14 +11,36 @@ A simple maths worksheet for kids that runs entirely in the browser.
 - Asks for the child's name before they start.
 - The child types answers on screen. **Check answers** marks each one right or wrong, shows the correct answer where needed and gives a score.
 - Once answering has started, the worksheet and settings are locked until the answers are checked, so an attempt can't be discarded halfway through.
-- Every checked attempt is saved to **History** with the name, start and finish times, time taken, settings and score.
+- Every checked attempt is saved to a shared **History**, so everyone can see each other's attempts: name, start and finish times, time taken, settings and score, best first.
 - Worksheets can be printed on A4.
 
-History is kept in the browser's local storage, so it stays on that device and browser only.
+## How it's built
+
+- `public/index.html`: the whole app, with no build step.
+- `src/worker.js`: a Cloudflare Worker that serves the page and a small API (`GET`/`POST /api/attempts`).
+- `migrations/`: the D1 (SQLite) table that stores attempts.
 
 ## Running locally
 
-It's a single `index.html` file with no build step. Open it in a browser.
+```sh
+npm install
+npm run dev   # creates the local database and serves http://localhost:8787
+```
+
+## Deploying
+
+One-time setup:
+
+```sh
+npx wrangler login
+npx wrangler d1 create matemko   # put the printed database_id into wrangler.jsonc
+```
+
+Then, for each deploy:
+
+```sh
+npm run deploy   # applies any new migrations and deploys the Worker
+```
 
 ## Credits
 

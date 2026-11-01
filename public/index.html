@@ -52,7 +52,7 @@
   }
   .history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .history h2 { margin: 0; font-size: 20px; }
-  .history button { padding: 6px 14px; font-size: 14px; background: #dc2626; }
+  .history-head small { color: #64748b; font-size: 14px; }
   #historyBody { overflow-x: auto; }
   .history table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 15px; }
   .history th, .history td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
@@ -184,8 +184,8 @@
 
   <div class="history" id="history" hidden>
     <div class="history-head">
-      <h2>Attempts</h2>
-      <button type="button" id="clearHistory">Clear history</button>
+      <h2>Top attempts</h2>
+      <small>Everyone's attempts, best first</small>
     </div>
     <div id="historyBody"></div>
   </div>
@@ -223,15 +223,22 @@ const historyEl = document.getElementById('history');
 const historyBtn = document.getElementById('historyBtn');
 const historyBody = document.getElementById('historyBody');
 
-// Attempts are kept in this browser only (localStorage)
-const HISTORY_KEY = 'matemko.attempts';
+// Attempts are shared by everyone through the Worker API (stored in Cloudflare D1)
+const API = '/api/attempts';
 const NAME_KEY = 'matemko.name';
 try { nameInput.value = localStorage.getItem(NAME_KEY) || ''; } catch {}
-function loadAttempts() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+async function loadAttempts() {
+  const res = await fetch(API);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
-function saveAttempts(list) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); } catch {}
+async function saveAttempt(attempt) {
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attempt),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 const escapeHtml = str => str.replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
@@ -265,27 +272,30 @@ function formatDuration(ms) {
   return `${sec}s`;
 }
 
-function renderHistory() {
-  const list = loadAttempts();
+// The server returns the top attempts already sorted: best score first; ties go to more
+// correct answers, then the faster attempt, then the newest
+async function renderHistory() {
+  if (historyBody.querySelector('table') === null) historyBody.innerHTML = '<p class="empty">Loading…</p>';
+  let list;
+  try {
+    list = await loadAttempts();
+  } catch {
+    historyBody.innerHTML = '<p class="empty">Couldn\'t load attempts. Check your connection and try again.</p>';
+    return;
+  }
   if (!list.length) {
     historyBody.innerHTML = '<p class="empty">No attempts recorded yet.</p>';
     return;
   }
-  // Best score first; ties go to more correct answers, then the faster attempt, then the newest
-  const pct = a => a.right / a.total;
-  const taken = a => (a.startedAt ? (a.endedAt ?? a.at) - a.startedAt : Infinity);
-  const sorted = list.slice().reverse().sort((x, y) =>
-    pct(y) - pct(x) || y.right - x.right || taken(x) - taken(y));
-  const rows = sorted.map(a => {
-    // Older attempts only stored the finish time as `at`
-    const end = a.endedAt ?? a.at, start = a.startedAt;
-    const sameDay = start && new Date(start).toDateString() === new Date(end).toDateString();
+  const rows = list.map(a => {
+    const end = a.endedAt, start = a.startedAt;
+    const sameDay = new Date(start).toDateString() === new Date(end).toDateString();
     return `<tr>
-      <td>${a.name ? escapeHtml(a.name) : '—'}</td>
-      <td>${start ? new Date(start).toLocaleString() : '—'}</td>
+      <td>${escapeHtml(a.name)}</td>
+      <td>${new Date(start).toLocaleString()}</td>
       <td>${sameDay ? new Date(end).toLocaleTimeString() : new Date(end).toLocaleString()}</td>
-      <td class="num">${start ? formatDuration(end - start) : '—'}</td>
-      <td>${a.ops.join(' ')}</td>
+      <td class="num">${formatDuration(end - start)}</td>
+      <td>${a.ops.map(escapeHtml).join(' ')}</td>
       <td class="num">${a.max}</td>
       <td class="num">${a.right} / ${a.total}</td>
       <td class="num">${Math.round((a.right / a.total) * 100)}%</td>
@@ -405,10 +415,12 @@ function check() {
   const pct = Math.round((right / equations.length) * 100);
   scoreEl.textContent = `Score: ${right} / ${equations.length} (${pct}%)`;
   scoreEl.hidden = false;
-  const endedAt = Date.now();
+  // Only the duration is sent; the server stamps the finish time so device clocks don't matter
+  const durationMs = startedAt === null ? 0 : Date.now() - startedAt;
   const ops = [...new Set(equations.map(e => e.op))];
-  saveAttempts([...loadAttempts(), { name: currentName(), startedAt: startedAt ?? endedAt, endedAt, ops, max: MAX, right, total: equations.length }]);
-  renderHistory();
+  saveAttempt({ name: currentName(), durationMs, ops, max: MAX, right, total: equations.length })
+    .then(() => { if (!historyEl.hidden) renderHistory(); })
+    .catch(() => { scoreEl.textContent += ' — couldn\'t save this attempt to the history'; });
   checked = true;
   setCheckDisabled(true);
   setInProgress(false);
@@ -448,11 +460,6 @@ historyBtn.addEventListener('click', () => {
   historyEl.hidden = !historyEl.hidden;
   historyBtn.setAttribute('aria-expanded', String(!historyEl.hidden));
   if (!historyEl.hidden) renderHistory();
-});
-document.getElementById('clearHistory').addEventListener('click', () => {
-  if (!confirm('Delete all recorded attempts?')) return;
-  saveAttempts([]);
-  renderHistory();
 });
 // Enter jumps to the next answer box
 pagesEl.addEventListener('keydown', ev => {
