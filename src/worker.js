@@ -37,7 +37,7 @@ function parseAttempt(body) {
 
 async function listAttempts(env) {
   const { results } = await env.DB.prepare(
-    `SELECT name, started_at, ended_at, ops, max_result, correct, total
+    `SELECT name, started_at, ended_at, ops, max_result, correct, total, country
        FROM attempts
       ORDER BY CAST(correct AS REAL) / total DESC, correct DESC, ended_at - started_at ASC, id DESC
       LIMIT ?`
@@ -50,6 +50,7 @@ async function listAttempts(env) {
     max: r.max_result,
     right: r.correct,
     total: r.total,
+    country: r.country,
   })));
 }
 
@@ -62,10 +63,13 @@ async function createAttempt(request, env) {
   }
   const a = parseAttempt(body);
   if (!a) return json({ error: 'Invalid attempt' }, 400);
+  // Country comes from Cloudflare's IP lookup; XX = unknown, T1 = Tor
+  const cc = request.cf?.country;
+  const country = typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
   await env.DB.prepare(
-    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total).run();
+    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country).run();
   return json({ ok: true }, 201);
 }
 

@@ -36,9 +36,9 @@
   }
   .ops button[aria-pressed="true"] { background: #2563eb; color: #fff; }
   .max { font-size: 16px; display: flex; align-items: center; gap: 8px; }
-  .max input {
+  .max input, .max select {
     font: inherit; width: 90px; padding: 8px 10px;
-    border: 1px solid #94a3b8; border-radius: 8px;
+    border: 1px solid #94a3b8; border-radius: 8px; background: #fff; color: inherit;
   }
   button:hover { filter: brightness(1.1); }
   button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
@@ -130,9 +130,9 @@
     .ops { flex: 1 1 100%; justify-content: center; }
     .ops button { flex: 1; width: auto; max-width: 72px; padding: 12px 0; font-size: 22px; }
     .max { flex: 1 1 100%; }
-    .max input, .max input#name { flex: 1; width: auto; min-width: 0; font-size: 16px; padding: 10px; }
+    .max input, .max select, .max input#name { flex: 1; width: auto; min-width: 0; font-size: 16px; padding: 10px; }
     .max:has(#max), .max:has(#count) { flex: 1 1 40%; }
-    .max:has(#max) input, .max:has(#count) input { width: 70px; }
+    .max:has(#max) select, .max:has(#count) select { width: 70px; }
     .name-hint { flex: 1 1 100%; text-align: center; }
     .toolbar > button { flex: 1 1 40%; padding: 12px; }
     #check { display: none; }
@@ -172,14 +172,25 @@
     </label>
     <span class="name-hint" id="nameHint" hidden>Enter your name to start</span>
     <label class="max">Max result
-      <input type="number" id="max" value="100" min="1" max="100000" step="1">
+      <select id="max">
+        <option>10</option>
+        <option>20</option>
+        <option selected>50</option>
+        <option>100</option>
+      </select>
     </label>
     <label class="max">Questions
-      <input type="number" id="count" value="30" min="1" max="300" step="1">
+      <select id="count">
+        <option>5</option>
+        <option selected>10</option>
+        <option>15</option>
+        <option>20</option>
+        <option>30</option>
+      </select>
     </label>
     <button id="gen">Generate</button>
     <button id="check">Check answers</button>
-    <button id="historyBtn" aria-expanded="false">History</button>
+    <button id="historyBtn" aria-expanded="false">Past Attempts</button>
   </div>
 
   <div class="history" id="history" hidden>
@@ -200,7 +211,7 @@
 
 <script>
 const ROWS = 10, COLS = 3, PER_PAGE = ROWS * COLS;
-let MAX = 100;
+let MAX = 50;
 let equations = []; // [{a, op, b, c, hide}]
 let startedAt = null; // set when the first answer is typed
 let inProgress = false; // answers typed but not yet checked
@@ -274,6 +285,17 @@ function formatDuration(ms) {
 
 // The server returns the top attempts already sorted: best score first; ties go to more
 // correct answers, then the faster attempt, then the newest
+// "KE" -> 🇰🇪 Kenya (falls back to the code if the browser has no name for it)
+let regionNames = null;
+try { regionNames = new Intl.DisplayNames(undefined, { type: 'region' }); } catch {}
+function formatCountry(code) {
+  if (!code || !/^[A-Z]{2}$/.test(code)) return '—';
+  const flag = String.fromCodePoint(...[...code].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
+  let name = code;
+  try { name = regionNames?.of(code) || code; } catch {}
+  return `${flag} ${escapeHtml(name)}`;
+}
+
 async function renderHistory() {
   if (historyBody.querySelector('table') === null) historyBody.innerHTML = '<p class="empty">Loading…</p>';
   let list;
@@ -292,6 +314,7 @@ async function renderHistory() {
     const sameDay = new Date(start).toDateString() === new Date(end).toDateString();
     return `<tr>
       <td>${escapeHtml(a.name)}</td>
+      <td>${formatCountry(a.country)}</td>
       <td>${new Date(start).toLocaleString()}</td>
       <td>${sameDay ? new Date(end).toLocaleTimeString() : new Date(end).toLocaleString()}</td>
       <td class="num">${formatDuration(end - start)}</td>
@@ -302,7 +325,7 @@ async function renderHistory() {
     </tr>`;
   }).join('');
   historyBody.innerHTML = `<table>
-    <thead><tr><th>Name</th><th>Started</th><th>Finished</th><th class="num">Time taken</th><th>Operations</th><th class="num">Max</th><th class="num">Score</th><th class="num">%</th></tr></thead>
+    <thead><tr><th>Name</th><th>Country</th><th>Started</th><th>Finished</th><th class="num">Time taken</th><th>Operations</th><th class="num">Max</th><th class="num">Score</th><th class="num">%</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 const activeOps = () => opButtons.filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.op);
@@ -322,7 +345,8 @@ function makeEquation(op) {
       return { a, op: '−', b, c: a - b };
     }
     case '×': {
-      const a = rnd(lo, Math.min(F, MAX)), b = rnd(lo, Math.max(lo, Math.min(F, Math.floor(MAX / a))));
+      // a is capped at MAX / lo so there is always room for a b of at least lo
+      const a = rnd(lo, Math.min(F, Math.floor(MAX / lo))), b = rnd(lo, Math.max(lo, Math.min(F, Math.floor(MAX / a))));
       return { a, op: '×', b, c: a * b };
     }
     default: {
@@ -364,16 +388,9 @@ function setInProgress(on) {
   genBtn.title = on ? 'Check your answers before starting a new worksheet' : '';
 }
 
-function clampInput(input, lo, hi, fallback) {
-  const v = parseInt(input.value, 10);
-  const n = Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : fallback));
-  input.value = n;
-  return n;
-}
-
 function generate() {
-  MAX = clampInput(maxInput, 1, 100000, 100);
-  const count = clampInput(countInput, 1, 300, 30);
+  MAX = Number(maxInput.value);
+  const count = Number(countInput.value);
   const ops = activeOps();
   const seen = new Set();
   equations = [];

@@ -11,7 +11,7 @@ A simple maths worksheet for kids that runs entirely in the browser.
 - Asks for the child's name before they start.
 - The child types answers on screen. **Check answers** marks each one right or wrong, shows the correct answer where needed and gives a score.
 - Once answering has started, the worksheet and settings are locked until the answers are checked, so an attempt can't be discarded halfway through.
-- Every checked attempt is saved to a shared **History**, so everyone can see each other's attempts: name, start and finish times, time taken, settings and score, best first.
+- Every checked attempt is saved to a shared **Past Attempts** list that everyone can see: name, start and finish times, time taken, settings and score, best first.
 - Worksheets can be printed on A4.
 
 ## How it's built
