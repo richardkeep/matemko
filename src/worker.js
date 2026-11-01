@@ -1,4 +1,4 @@
-// Serves the worksheet from ./public and a small shared attempts API backed by D1.
+// Serves the Vue build from ./dist and a small shared attempts API backed by D1.
 //   GET  /api/attempts  -> top attempts, best first
 //   POST /api/attempts  -> record an attempt
 

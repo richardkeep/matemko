@@ -1,22 +1,22 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "maths",
-	"main": "src/worker.js",
-	"compatibility_date": "2026-10-01",
-	"preview_urls": false,
-	"assets": {
-		"directory": "./public",
-		"binding": "ASSETS",
-		"run_worker_first": [
-			"/api/*"
-		]
-	},
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "matemko",
-			"database_id": "e78a05da-5738-42ce-8fb7-cc3bca5a9b6e",
-			"migrations_dir": "migrations"
-		}
-	]
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "maths",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "matemko",
+      "database_id": "e78a05da-5738-42ce-8fb7-cc3bca5a9b6e",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
