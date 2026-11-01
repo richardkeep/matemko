@@ -42,6 +42,30 @@
     border: 1px solid #94a3b8; border-radius: 8px;
   }
   button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+  #check { background: #d97706; }
+  #score[hidden], #history[hidden] { display: none; }
+  #historyBtn { background: #7c3aed; }
+  .history {
+    width: 210mm; max-width: 100%; margin: 0 auto 16px; padding: 12px 16px;
+    background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.1);
+  }
+  .history-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .history h2 { margin: 0; font-size: 20px; }
+  .history button { padding: 6px 14px; font-size: 14px; background: #dc2626; }
+  .history table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 15px; }
+  .history th, .history td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+  .history td.num, .history th.num { text-align: right; }
+  .max input#name { width: 170px; }
+  .max input.missing { border-color: #dc2626; outline: 2px solid #fca5a5; }
+  .name-hint { color: #dc2626; font-size: 14px; }
+  .name-hint[hidden] { display: none; }
+  .history .empty { color: #64748b; margin: 10px 0 0; }
+  .score {
+    width: 210mm; max-width: 100%; margin: 0 auto 16px; padding: 12px 16px;
+    background: #fff; border-radius: 8px; text-align: center; font-size: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.1);
+  }
 
   .page {
     width: 210mm;
@@ -75,18 +99,32 @@
     font-size: 17pt;
     white-space: nowrap;
   }
-  .box {
-    display: inline-block;
-    width: 11mm;
+  .ans { position: relative; display: inline-block; }
+  .ans input {
+    font: inherit;
+    text-align: center;
+    width: max(11mm, calc(var(--digits, 3) * 0.65em + 3mm));
     height: 11mm;
+    padding: 0;
     border: 1.5px solid #111;
     border-radius: 2px;
+    background: #fff;
+    color: #111;
+  }
+  .ans input:disabled { background: #fff; opacity: 1; cursor: not-allowed; }
+  .ans input:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
+  .ans.right input { border-color: #059669; background: #d1fae5; }
+  .ans.wrong input { border-color: #dc2626; background: #fee2e2; }
+  .ans .fix {
+    position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+    margin-top: 1mm; font-size: 11pt; color: #dc2626; white-space: nowrap;
   }
 
   @page { size: A4; margin: 0; }
   @media print {
     body { background: #fff; }
-    .toolbar { display: none; }
+    .toolbar, .score, .history { display: none; }
+    .page { break-after: page; }
     .page { margin: 0; box-shadow: none; }
   }
 </style>
@@ -99,26 +137,120 @@
       <button type="button" data-op="×" aria-pressed="true" title="Multiplication">×</button>
       <button type="button" data-op="÷" aria-pressed="true" title="Division">÷</button>
     </div>
+    <label class="max">Name
+      <input type="text" id="name" maxlength="40" placeholder="Your name" autocomplete="off" required>
+    </label>
+    <span class="name-hint" id="nameHint" hidden>Enter your name to start</span>
     <label class="max">Max result
       <input type="number" id="max" value="100" min="1" max="100000" step="1">
     </label>
+    <label class="max">Questions
+      <input type="number" id="count" value="30" min="1" max="300" step="1">
+    </label>
     <button id="gen">Generate</button>
+    <button id="check">Check answers</button>
+    <button id="historyBtn" aria-expanded="false">History</button>
     <button id="print" class="secondary">Print</button>
   </div>
 
-  <div class="page">
-    <div class="head"><div>Name: <span></span></div><div>Date: <span style="min-width:35mm"></span></div></div>
-    <div class="grid" id="grid"></div>
+  <div class="history" id="history" hidden>
+    <div class="history-head">
+      <h2>Attempts</h2>
+      <button type="button" id="clearHistory">Clear history</button>
+    </div>
+    <div id="historyBody"></div>
   </div>
 
+  <div class="score" id="score" hidden></div>
+  <div id="pages"></div>
+
 <script>
-const ROWS = 10, COLS = 3;
+const ROWS = 10, COLS = 3, PER_PAGE = ROWS * COLS;
 let MAX = 100;
+let equations = []; // [{a, op, b, c, hide}]
+let startedAt = null; // set when the first answer is typed
+let inProgress = false; // answers typed but not yet checked
 const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
 const opButtons = [...document.querySelectorAll('#ops button')];
 const maxInput = document.getElementById('max');
+const countInput = document.getElementById('count');
+const checkBtn = document.getElementById('check');
+const genBtn = document.getElementById('gen');
+const scoreEl = document.getElementById('score');
+const pagesEl = document.getElementById('pages');
+const nameInput = document.getElementById('name');
+const nameHint = document.getElementById('nameHint');
+const historyEl = document.getElementById('history');
+const historyBtn = document.getElementById('historyBtn');
+const historyBody = document.getElementById('historyBody');
+
+// Attempts are kept in this browser only (localStorage)
+const HISTORY_KEY = 'matemko.attempts';
+function loadAttempts() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+}
+function saveAttempts(list) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); } catch {}
+}
+
+const escapeHtml = str => str.replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
+const currentName = () => nameInput.value.trim();
+
+// Flags the name field and returns false when no name has been entered
+function requireName() {
+  if (currentName()) return true;
+  nameInput.classList.add('missing');
+  nameHint.hidden = false;
+  nameInput.focus();
+  return false;
+}
+
+// Answer boxes stay locked until a name is entered
+function syncName() {
+  const name = currentName();
+  if (name) { nameInput.classList.remove('missing'); nameHint.hidden = true; }
+  const headName = document.getElementById('headName');
+  if (headName) headName.textContent = name;
+  pagesEl.querySelectorAll('.ans input').forEach(input => { input.disabled = !name; });
+}
+
+// e.g. 45s, 3m 07s, 1h 02m 15s
+function formatDuration(ms) {
+  const t = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  const pad = n => String(n).padStart(2, '0');
+  if (h) return `${h}h ${pad(m)}m ${pad(sec)}s`;
+  if (m) return `${m}m ${pad(sec)}s`;
+  return `${sec}s`;
+}
+
+function renderHistory() {
+  const list = loadAttempts();
+  if (!list.length) {
+    historyBody.innerHTML = '<p class="empty">No attempts recorded yet.</p>';
+    return;
+  }
+  const rows = list.slice().reverse().map(a => {
+    // Older attempts only stored the finish time as `at`
+    const end = a.endedAt ?? a.at, start = a.startedAt;
+    const sameDay = start && new Date(start).toDateString() === new Date(end).toDateString();
+    return `<tr>
+      <td>${a.name ? escapeHtml(a.name) : '—'}</td>
+      <td>${start ? new Date(start).toLocaleString() : '—'}</td>
+      <td>${sameDay ? new Date(end).toLocaleTimeString() : new Date(end).toLocaleString()}</td>
+      <td class="num">${start ? formatDuration(end - start) : '—'}</td>
+      <td>${a.ops.join(' ')}</td>
+      <td class="num">${a.max}</td>
+      <td class="num">${a.right} / ${a.total}</td>
+      <td class="num">${Math.round((a.right / a.total) * 100)}%</td>
+    </tr>`;
+  }).join('');
+  historyBody.innerHTML = `<table>
+    <thead><tr><th>Name</th><th>Started</th><th>Finished</th><th class="num">Time taken</th><th>Operations</th><th class="num">Max</th><th class="num">Score</th><th class="num">%</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
 const activeOps = () => opButtons.filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.op);
 
 // Returns {a, op, b, c} meaning a op b = c, all values within 0..MAX
@@ -146,31 +278,87 @@ function makeEquation(op) {
   }
 }
 
-function render(e) {
-  // Hide the result (after =) or one of the operands (in the middle / start)
-  const hide = pick(['c', 'c', 'b', 'a']);
-  const box = '<span class="box"></span>';
-  const part = k => (k === hide ? box : e[k]);
-  return `${part('a')} <span>${e.op}</span> ${part('b')} <span>=</span> ${part('c')}`;
+function renderEq(e, i) {
+  const blank = `<span class="ans"><input type="text" inputmode="numeric" autocomplete="off" data-i="${i}" aria-label="Answer ${i + 1}"></span>`;
+  const part = k => (k === e.hide ? blank : e[k]);
+  return `<div class="eq">${part('a')} <span>${e.op}</span> ${part('b')} <span>=</span> ${part('c')}</div>`;
+}
+
+// Lays the equations out on as many A4 pages as needed, 30 per page
+function render() {
+  const head = '<div class="head"><div>Name: <span id="headName"></span></div></div>';
+  const pages = [];
+  for (let p = 0; p < equations.length; p += PER_PAGE) {
+    const cells = equations.slice(p, p + PER_PAGE).map((e, j) => renderEq(e, p + j)).join('');
+    pages.push(`<div class="page">${p === 0 ? head : ''}<div class="grid">${cells}</div></div>`);
+  }
+  pagesEl.innerHTML = pages.join('');
+  pagesEl.style.setProperty('--digits', String(MAX).length);
+  syncName();
+  checkBtn.disabled = false;
+  startedAt = null;
+  setInProgress(false);
+  scoreEl.hidden = true;
+}
+
+// While an attempt is in progress the worksheet can't be replaced or its settings changed;
+// checking the answers (which records the attempt) is the only way to move on
+function setInProgress(on) {
+  inProgress = on;
+  [genBtn, ...opButtons, maxInput, countInput, nameInput].forEach(el => { el.disabled = on; });
+  genBtn.title = on ? 'Check your answers before starting a new worksheet' : '';
+}
+
+function clampInput(input, lo, hi, fallback) {
+  const v = parseInt(input.value, 10);
+  const n = Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : fallback));
+  input.value = n;
+  return n;
 }
 
 function generate() {
-  const v = parseInt(maxInput.value, 10);
-  MAX = Math.min(100000, Math.max(1, Number.isFinite(v) ? v : 100));
-  maxInput.value = MAX;
+  MAX = clampInput(maxInput, 1, 100000, 100);
+  const count = clampInput(countInput, 1, 300, 30);
   const ops = activeOps();
   const seen = new Set();
-  const cells = [];
+  equations = [];
   let tries = 0;
-  while (cells.length < ROWS * COLS) {
+  while (equations.length < count) {
     const e = makeEquation(pick(ops));
     const key = `${e.a}${e.op}${e.b}`;
     // Avoid duplicates, but give up after many tries (small MAX has few combinations)
     if (seen.has(key) && ++tries < 500) continue;
     seen.add(key);
-    cells.push(`<div class="eq">${render(e)}</div>`);
+    // Hide the result (after =) or one of the operands (in the middle / start)
+    e.hide = pick(['c', 'c', 'b', 'a']);
+    equations.push(e);
   }
-  document.getElementById('grid').innerHTML = cells.join('');
+  render();
+}
+
+function check() {
+  if (!requireName()) return;
+  let right = 0;
+  pagesEl.querySelectorAll('.ans input').forEach(input => {
+    const e = equations[input.dataset.i];
+    const expected = e[e.hide];
+    const ok = input.value.trim() !== '' && Number(input.value.trim()) === expected;
+    const wrap = input.parentElement;
+    wrap.classList.add(ok ? 'right' : 'wrong');
+    if (ok) right++;
+    else wrap.insertAdjacentHTML('beforeend', `<span class="fix">✓ ${expected}</span>`);
+    input.readOnly = true;
+  });
+  const pct = Math.round((right / equations.length) * 100);
+  scoreEl.textContent = `Score: ${right} / ${equations.length} (${pct}%)`;
+  scoreEl.hidden = false;
+  const endedAt = Date.now();
+  const ops = [...new Set(equations.map(e => e.op))];
+  saveAttempts([...loadAttempts(), { name: currentName(), startedAt: startedAt ?? endedAt, endedAt, ops, max: MAX, right, total: equations.length }]);
+  renderHistory();
+  checkBtn.disabled = true;
+  setInProgress(false);
+  scoreEl.scrollIntoView({ behavior: 'smooth' });
 }
 
 opButtons.forEach(b => b.addEventListener('click', () => {
@@ -178,9 +366,40 @@ opButtons.forEach(b => b.addEventListener('click', () => {
   if (on && activeOps().length === 1) return; // keep at least one operation selected
   b.setAttribute('aria-pressed', String(!on));
 }));
-document.getElementById('gen').addEventListener('click', generate);
+genBtn.addEventListener('click', () => { if (requireName()) generate(); });
+nameInput.addEventListener('input', syncName);
+pagesEl.addEventListener('input', ev => {
+  if (startedAt === null && ev.target.matches('.ans input')) {
+    startedAt = Date.now();
+    setInProgress(true);
+  }
+});
+window.addEventListener('beforeunload', ev => {
+  if (inProgress) ev.preventDefault();
+});
+checkBtn.addEventListener('click', check);
+historyBtn.addEventListener('click', () => {
+  historyEl.hidden = !historyEl.hidden;
+  historyBtn.setAttribute('aria-expanded', String(!historyEl.hidden));
+  if (!historyEl.hidden) renderHistory();
+});
+document.getElementById('clearHistory').addEventListener('click', () => {
+  if (!confirm('Delete all recorded attempts?')) return;
+  saveAttempts([]);
+  renderHistory();
+});
+// Enter jumps to the next answer box
+pagesEl.addEventListener('keydown', ev => {
+  if (ev.key !== 'Enter' || !ev.target.matches('.ans input')) return;
+  ev.preventDefault();
+  const inputs = [...pagesEl.querySelectorAll('.ans input')];
+  const next = inputs[inputs.indexOf(ev.target) + 1];
+  if (next) next.focus(); else checkBtn.focus();
+});
 document.getElementById('print').addEventListener('click', () => window.print());
 generate();
+nameHint.hidden = false;
+nameInput.focus();
 </script>
 </body>
 </html>
