@@ -22,4 +22,4 @@ It's a single `index.html` file with no build step. Open it in a browser.
 
 ## Credits
 
-Credits go to [Lovro Papež](https://github.com/cannonsh).
+Credits go to [Lovro Papež](https://github.com/cannonsh/matemko).
