@@ -40,6 +40,12 @@
     font: inherit; width: 90px; padding: 8px 10px;
     border: 1px solid #94a3b8; border-radius: 8px; background: #fff; color: inherit;
   }
+  /* Own chevron instead of the native arrow, which sits flush against the edge */
+  .max select {
+    appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 32px;
+    background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23334155' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center;
+  }
+  .max select:disabled { cursor: not-allowed; opacity: .6; }
   button:hover { filter: brightness(1.1); }
   button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
   #check, #checkEnd { background: #d97706; }
@@ -131,6 +137,7 @@
     .ops button { flex: 1; width: auto; max-width: 72px; padding: 12px 0; font-size: 22px; }
     .max { flex: 1 1 100%; }
     .max input, .max select, .max input#name { flex: 1; width: auto; min-width: 0; font-size: 16px; padding: 10px; }
+    .max select { padding-right: 32px; }
     .max:has(#max), .max:has(#count) { flex: 1 1 40%; }
     .max:has(#max) select, .max:has(#count) select { width: 70px; }
     .name-hint { flex: 1 1 100%; text-align: center; }
