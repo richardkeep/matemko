@@ -38,7 +38,7 @@ async function submit() {
             <button class="button primary auth-submit" type="submit">{{ busy ? 'One little moment…' : signup ? 'Start my adventure' : 'Let’s play' }}<ArrowRight :size="20" /></button>
           </fieldset>
         </form>
-        <p class="auth-privacy"><LockKeyhole :size="15" /><span>Your email and birthday stay private. Only your explorer nickname and score appear on the star board.</span></p><p v-if="signup" class="auth-parent">Young explorers can ask a parent or guardian to help create their account.</p>
+        <p class="auth-privacy"><LockKeyhole :size="15" /><span>Your name and score appear on the star board. Your email and birthday stay private.</span></p><p v-if="signup" class="auth-parent">Young explorers can ask a parent or guardian to help create their account.</p>
       </section>
     </div>
   </main>

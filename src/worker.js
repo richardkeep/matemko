@@ -19,7 +19,7 @@ const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 function parseAttempt(body) {
   if (!body || typeof body !== 'object') return null;
   const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ') : '';
-  if (name.length < 1 || name.length > 40) return null;
+  if (name.length < 1 || name.length > 80) return null;
   if (!isInt(body.total, 1, 300) || !isInt(body.right, 0, body.total)) return null;
   if (!isInt(body.max, 1, 100000) || !isInt(body.durationMs, 0, DAY_MS)) return null;
   if (!Array.isArray(body.ops) || body.ops.length < 1 || body.ops.length > OPS.length) return null;
@@ -62,7 +62,7 @@ async function createAttempt(request, env, user) {
   } catch {
     return json({ error: 'Invalid JSON' }, 400);
   }
-  const a = parseAttempt(body);
+  const a = parseAttempt({ ...body, name: user.name });
   if (!a) return json({ error: 'Invalid attempt' }, 400);
   // Country comes from Cloudflare's IP lookup; XX = unknown, T1 = Tor
   const cc = request.cf?.country;

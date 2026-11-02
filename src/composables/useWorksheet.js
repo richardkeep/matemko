@@ -1,8 +1,7 @@
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { generateWorksheet, isCorrect } from '../lib/worksheet'
-const storedName = user => { try { return localStorage.getItem('easymath.nickname.' + user.id) || '' } catch { return '' } }
 export function useWorksheet(user) {
-  const name = ref(storedName(user)); const max = ref(50); const count = ref(10); const ops = ref(['+', '−', '×', '÷'])
+  const name = ref(user.name); const max = ref(50); const count = ref(10); const ops = ref(['+', '−', '×', '÷'])
   const equations = ref([]); const answers = ref([]); const checked = ref(false); const startedAt = ref(null); const endedAt = ref(null); const now = ref(0)
   const result = ref(null); const saveState = ref(''); const saveError = ref(''); let pendingAttempt = null; let round = 0
   const answered = computed(() => answers.value.filter(answer => String(answer).trim() !== '').length)
@@ -10,7 +9,6 @@ export function useWorksheet(user) {
   const locked = computed(() => inProgress.value || saveState.value === 'saving')
   const elapsed = computed(() => startedAt.value === null ? 0 : (endedAt.value ?? now.value) - startedAt.value)
   const timer = setInterval(() => { if (inProgress.value) now.value = performance.now() }, 1000)
-  watch(name, value => { try { localStorage.setItem('easymath.nickname.' + user.id, value.trim()) } catch { /* Private browsing can deny storage. */ } })
   function generate() {
     if (locked.value) return false
     equations.value = generateWorksheet({ max: max.value, count: count.value, ops: ops.value })

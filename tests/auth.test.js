@@ -40,7 +40,7 @@ test('account lifecycle protects sessions, private fields, scores and sign-out',
     const attempt = { name: 'Captain Clever', total: 5, right: 4, max: 10, ops: ['+'], durationMs: 1000, user_id: 'forged' }
     assert.equal((await call(env, '/api/attempts', attempt, session)).status, 201)
     assert.equal(env.sqlite.prepare('SELECT user_id FROM attempts').get().user_id, body.user.id)
-    const board = await (await call(env, '/api/attempts', undefined, session)).json(); assert.equal(board[0].name, 'Captain Clever'); assert.equal(JSON.stringify(board).includes(fields.email), false); assert.equal(JSON.stringify(board).includes(fields.dateOfBirth), false)
+    const board = await (await call(env, '/api/attempts', undefined, session)).json(); assert.equal(board[0].name, fields.name); assert.equal(JSON.stringify(board).includes(fields.email), false); assert.equal(JSON.stringify(board).includes(fields.dateOfBirth), false)
     assert.equal((await call(env, '/api/auth/register', fields)).status, 409)
     const bad = await call(env, '/api/auth/login', { email: fields.email, password: 'bad' }); const missing = await call(env, '/api/auth/login', { email: 'missing@example.test', password: 'bad' }); assert.equal(bad.status, 401); assert.deepEqual(await bad.json(), await missing.json())
     const login = await call(env, '/api/auth/login', { email: fields.email.toUpperCase(), password: fields.password }); assert.equal(login.status, 200)

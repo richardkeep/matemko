@@ -1,16 +1,13 @@
 <script setup>
 import { Sparkles, LockKeyhole, ArrowRight } from 'lucide-vue-next'
 import { OPERATIONS } from '../lib/worksheet'
-defineProps({ name: String, max: Number, count: Number, ops: Array, locked: Boolean, needsName: Boolean })
-const emit = defineEmits(['update:name', 'update:max', 'update:count', 'toggle', 'generate'])
+defineProps({ name: String, max: Number, count: Number, ops: Array, locked: Boolean })
+const emit = defineEmits(['update:max', 'update:count', 'toggle', 'generate'])
 </script>
 <template>
   <aside class="setup-card">
-    <div class="setup-heading"><span class="section-icon"><Sparkles :size="21" /></span><div><h2>Your adventure</h2><p>A few little choices. Then, let's play!</p></div></div>
+    <div class="setup-heading"><span class="section-icon"><Sparkles :size="21" /></span><div><h2>Your adventure</h2><p>{{ name }}, let’s choose your next challenge!</p></div></div>
     <fieldset :disabled="locked">
-      <label class="field-label" for="explorer-name">Pick your explorer name <span>✦</span></label>
-      <input id="explorer-name" class="name-input" :class="{ invalid: needsName }" :value="name" @input="emit('update:name', $event.target.value)" maxlength="40" autocomplete="nickname" placeholder="e.g. Captain Clever" :aria-invalid="needsName" aria-describedby="name-help" />
-      <p id="name-help" class="field-help" :class="{ 'error-text': needsName }">{{ needsName ? 'Pop your name in here to start!' : 'Your nickname and score will be on the star board.' }}</p>
       <div class="field-label operation-label">What shall we practise?</div>
       <div class="operation-grid" role="group" aria-label="Choose maths operations">
         <button v-for="operation in OPERATIONS" :key="operation.value" type="button" :class="['operation-button', operation.color, { selected: ops.includes(operation.value) }]" :aria-pressed="ops.includes(operation.value)" :aria-label="operation.label" @click="emit('toggle', operation.value)"><span class="operation-symbol">{{ operation.value }}</span><span>{{ operation.short }}</span><span class="selected-tick" aria-hidden="true">{{ ops.includes(operation.value) ? '✓' : '+' }}</span></button>
