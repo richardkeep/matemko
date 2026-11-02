@@ -58,3 +58,8 @@ test('cross-origin, oversized requests and repeated login attempts are rejected'
     assert.equal((await call(env, '/api/auth/login', { email: fields.email, password: 'bad' })).status, 429)
   } finally { env.sqlite.close() }
 })
+
+test('production HTTP redirects to HTTPS before processing credentials', async () => {
+  const r = await worker.fetch(new Request('http://maths.example.test/api/auth/register', { method: 'POST' }), {});
+  assert.equal(r.status, 308); assert.equal(r.headers.get('location'), 'https://maths.example.test/api/auth/register');
+})
