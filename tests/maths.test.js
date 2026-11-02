@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { makeEquation, generateWorksheet, isCorrect } from '../src/lib/worksheet.js'
+import { makeEquation, generateWorksheet, isCorrect, cleanProblems } from '../src/lib/worksheet.js'
 import { emptyProgress, recordProgress, starsFor, BADGES, storeProgress, readProgress } from '../src/lib/progress.js'
 let seed = 179
 const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
@@ -43,4 +43,14 @@ test('nickname progress persists independently and tolerates corrupt or denied s
  data.set('matemko.progress.explorer','bad json');assert.deepEqual(readProgress('Explorer',storage),emptyProgress())
  assert.deepEqual(readProgress('A',{getItem(){throw Error()}}),emptyProgress())
  assert.doesNotThrow(()=>storeProgress('A',p,{setItem(){throw Error()}}))
+})
+test('saved sums keep only known fields and reject anything that does not add up',()=>{
+ const sums=[{a:48,op:'+',b:1,c:49,hide:'b',answer:' 1 ',extra:'x'},{a:49,op:'÷',b:7,c:7,hide:'b',answer:''}]
+ assert.deepEqual(cleanProblems(sums,2),[{a:48,op:'+',b:1,c:49,hide:'b',answer:'1'},{a:49,op:'÷',b:7,c:7,hide:'b',answer:''}])
+ assert.equal(cleanProblems(sums,3),null)
+ assert.equal(cleanProblems([{a:2,op:'+',b:2,c:5,hide:'c',answer:'5'}],1),null)
+ assert.equal(cleanProblems([{a:4,op:'÷',b:0,c:0,hide:'c',answer:'0'}],1),null)
+ assert.equal(cleanProblems([{a:2,op:'+',b:2,c:4,hide:'d',answer:'4'}],1),null)
+ assert.equal(cleanProblems([{a:2,op:'+',b:2,c:4,hide:'c',answer:'-4'}],1),null)
+ assert.equal(cleanProblems('nope',1),null)
 })

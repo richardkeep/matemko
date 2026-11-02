@@ -44,7 +44,7 @@ export function useWorksheet(user) {
     const right = equations.value.filter((equation, index) => isCorrect(equation, answers.value[index])).length
     result.value = { right, total: equations.value.length, percent: Math.round(right / equations.value.length * 100), durationMs: Math.max(0, Math.round(elapsed.value)) }
     checked.value = true
-    pendingAttempt = { name: name.value.trim(), max: max.value, ops: [...new Set(equations.value.map(equation => equation.op))], right, total: equations.value.length, durationMs: Math.min(86400000, result.value.durationMs) }
+    pendingAttempt = { name: name.value.trim(), max: max.value, ops: [...new Set(equations.value.map(equation => equation.op))], right, total: equations.value.length, durationMs: Math.min(86400000, result.value.durationMs), problems: equations.value.map((equation, index) => ({ ...equation, answer: String(answers.value[index]).trim() })) }
     void save()
   }
   const beforeUnload = event => { if (inProgress.value) event.preventDefault() }

@@ -68,3 +68,20 @@
  .operation-button{color:#536356}.operation-button.green.selected{color:#3c6439}.operation-button.blue.selected{color:#315e7d}.operation-button.orange.selected{color:#8d542c}.operation-button.purple.selected{color:#69448f}
  .correct .answer-input,.answer-feedback{color:#3c6634}.learning .answer-input{color:#815320}
 }
+
+/* Star board: a learner's own sums for a round */
+.sums-toggle{display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:0;border:0;background:none;font:inherit;font-size:14px;font-weight:650;color:var(--green);cursor:pointer}
+.sums-toggle:hover{text-decoration:underline}
+.sums-toggle .flipped{transform:rotate(180deg)}
+.board-table .sums-row td{border-top:0;padding-top:0;white-space:normal;background:#fbfcf8}
+.sums-list{list-style:none;margin:0;padding:6px 0 4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.sums-list li{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid #dbead4;border-radius:12px;background:#f6fbf3}
+.sums-list li.learning{border-color:#f1e3d2;background:#fffcf8}
+.sum-number{font-size:12px;font-weight:700;color:#7c8586}
+.sum-equation{display:flex;align-items:center;gap:6px;font-size:18px;font-weight:700;color:var(--ink)}
+.sum-sign{color:#7c8586;font-weight:600}
+.sum-answer{min-width:32px;padding:2px 8px;text-align:center;border-radius:8px;background:#e3f0dc;color:#3c6634}
+.learning .sum-answer{background:#f8e8d5;color:#815320}
+.sum-feedback{margin-left:auto;display:inline-flex;white-space:nowrap;align-items:center;gap:4px;font-size:14px;font-weight:600;color:#3c6634}
+.learning .sum-feedback{color:#815320}
+.sums-missing{margin:4px 0;font-size:14px;color:var(--muted)}

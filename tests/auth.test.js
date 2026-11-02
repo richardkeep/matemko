@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import worker from '../src/worker.js'
 import { registration, hashPassword, verifyPassword, COOKIE } from '../src/lib/auth.js'
 function database() {
   const sqlite = new DatabaseSync(':memory:')
-  for (const f of ['0001_create_attempts.sql', '0002_add_country.sql', '0003_authentication.sql']) sqlite.exec(readFileSync(new URL('../migrations/' + f, import.meta.url), 'utf8'))
+  for (const f of readdirSync(new URL('../migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).sort()) sqlite.exec(readFileSync(new URL('../migrations/' + f, import.meta.url), 'utf8'))
   const DB = { prepare(sql) { const statement = sqlite.prepare(sql); let args = []; return { bind(...values) { args = values; return this }, async first() { return statement.get(...args) || null }, async all() { return { results: statement.all(...args) } }, async run() { statement.run(...args); return { success: true } } } }, async batch(statements) { const results = []; for (const s of statements) results.push(await s.run()); return results } }
   return { DB, sqlite, ASSETS: { fetch: () => new Response('app') } }
 }
@@ -62,4 +62,20 @@ test('cross-origin, oversized requests and repeated login attempts are rejected'
 test('production HTTP redirects to HTTPS before processing credentials', async () => {
   const r = await worker.fetch(new Request('http://maths.example.test/api/auth/register', { method: 'POST' }), {});
   assert.equal(r.status, 308); assert.equal(r.headers.get('location'), 'https://maths.example.test/api/auth/register');
+})
+
+test('a round\'s sums are saved, must match the score, and are only returned to the account that played it', async () => {
+  const env = database()
+  try {
+    const owner = cookie(await call(env, '/api/auth/register', fields))
+    const other = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Other Explorer', email: 'other@example.test' }))
+    const problems = [{ a: 48, op: '+', b: 1, c: 49, hide: 'b', answer: '1' }, { a: 43, op: '−', b: 24, c: 19, hide: 'c', answer: '20' }]
+    const attempt = { total: 2, right: 1, max: 50, ops: ['+', '−'], durationMs: 1000, problems }
+    assert.equal((await call(env, '/api/attempts', { ...attempt, right: 2 }, owner)).status, 400)
+    assert.equal((await call(env, '/api/attempts', attempt, owner)).status, 201)
+    const mine = (await (await call(env, '/api/attempts', undefined, owner)).json())[0]
+    assert.equal(mine.mine, true); assert.deepEqual(mine.problems, problems)
+    const theirs = (await (await call(env, '/api/attempts', undefined, other)).json())[0]
+    assert.equal(theirs.mine, false); assert.equal(theirs.problems, null); assert.equal(theirs.right, 1)
+  } finally { env.sqlite.close() }
 })

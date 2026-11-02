@@ -30,6 +30,23 @@ export function generateWorksheet({ max, count, ops }, random = Math.random) {
 export function isCorrect(equation, answer) {
   return String(answer ?? '').trim() !== '' && /^\d+$/.test(String(answer).trim()) && Number(answer) === equation[equation.hide]
 }
+// Checks a round's sums as sent by the browser; returns them with only known fields, or null
+export function cleanProblems(problems, total) {
+  if (!Array.isArray(problems) || problems.length !== total) return null
+  const clean = []
+  for (const problem of problems) {
+    if (!problem || typeof problem !== 'object') return null
+    const { a, op, b, c, hide } = problem
+    if (![a, b, c].every(n => Number.isInteger(n) && n >= 0 && n <= 100000)) return null
+    if (!OPERATIONS.some(item => item.value === op) || !['a', 'b', 'c'].includes(hide)) return null
+    const adds = op === '+' ? a + b === c : op === '−' ? a - b === c : op === '×' ? a * b === c : b > 0 && b * c === a
+    if (!adds) return null
+    const answer = typeof problem.answer === 'string' ? problem.answer.trim() : ''
+    if (!/^\d{0,6}$/.test(answer)) return null
+    clean.push({ a, op, b, c, hide, answer })
+  }
+  return clean
+}
 export function formatDuration(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000))
   const minutes = Math.floor(seconds / 60)

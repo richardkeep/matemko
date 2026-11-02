@@ -1,4 +1,5 @@
 import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
+import { cleanProblems, isCorrect } from './lib/worksheet.js';
 // Serves the Vue build from ./dist and a small shared attempts API backed by D1.
 //   GET  /api/attempts  -> top attempts, best first
 //   POST /api/attempts  -> record an attempt
@@ -24,6 +25,13 @@ function parseAttempt(body) {
   if (!isInt(body.max, 1, 100000) || !isInt(body.durationMs, 0, DAY_MS)) return null;
   if (!Array.isArray(body.ops) || body.ops.length < 1 || body.ops.length > OPS.length) return null;
   if (!body.ops.every(op => OPS.includes(op)) || new Set(body.ops).size !== body.ops.length) return null;
+  // The sums are optional so pages loaded before they were added can still save; when sent, they must match the score
+  let problems = null;
+  if (body.problems !== undefined) {
+    problems = cleanProblems(body.problems, body.total);
+    if (!problems || !problems.every(p => body.ops.includes(p.op))) return null;
+    if (problems.filter(p => isCorrect(p, p.answer)).length !== body.right) return null;
+  }
   const endedAt = Date.now();
   return {
     name,
@@ -33,17 +41,20 @@ function parseAttempt(body) {
     max: body.max,
     right: body.right,
     total: body.total,
+    problems,
   };
 }
 
-async function listAttempts(env) {
+// Everyone sees the scores; a round's sums are only returned to the account that played it
+async function listAttempts(env, user) {
   const { results } = await env.DB.prepare(
-    `SELECT name, started_at, ended_at, ops, max_result, correct, total, country
+    `SELECT id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems
        FROM attempts
       ORDER BY CAST(correct AS REAL) / total DESC, correct DESC, ended_at - started_at ASC, id DESC
       LIMIT ?`
   ).bind(TOP_LIMIT).all();
   return json(results.map(r => ({
+    id: r.id,
     name: r.name,
     startedAt: r.started_at,
     endedAt: r.ended_at,
@@ -52,6 +63,8 @@ async function listAttempts(env) {
     right: r.correct,
     total: r.total,
     country: r.country,
+    mine: r.user_id === user.id,
+    problems: r.user_id === user.id && r.problems ? JSON.parse(r.problems) : null,
   })));
 }
 
@@ -68,9 +81,9 @@ async function createAttempt(request, env, user) {
   const cc = request.cf?.country;
   const country = typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
   await env.DB.prepare(
-    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id).run();
+    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id, a.problems && JSON.stringify(a.problems)).run();
   return json({ ok: true }, 201);
 }
 
@@ -86,7 +99,7 @@ export default {
       if (url.pathname === '/api/attempts') {
         const user = await currentUser(request, env);
         if (!user) return authJson({ error: 'Please sign in to continue.' }, 401);
-        if (request.method === 'GET') return await listAttempts(env);
+        if (request.method === 'GET') return await listAttempts(env, user);
         if (request.method === 'POST') { sameOrigin(request); return await createAttempt(request, env, user); }
         return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
       }
