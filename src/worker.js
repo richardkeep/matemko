@@ -1,3 +1,4 @@
+import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
 // Serves the Vue build from ./dist and a small shared attempts API backed by D1.
 //   GET  /api/attempts  -> top attempts, best first
 //   POST /api/attempts  -> record an attempt
@@ -54,10 +55,10 @@ async function listAttempts(env) {
   })));
 }
 
-async function createAttempt(request, env) {
+async function createAttempt(request, env, user) {
   let body;
   try {
-    body = await request.json();
+    body = await readBody(request);
   } catch {
     return json({ error: 'Invalid JSON' }, 400);
   }
@@ -67,20 +68,30 @@ async function createAttempt(request, env) {
   const cc = request.cf?.country;
   const country = typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
   await env.DB.prepare(
-    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country).run();
+    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id).run();
   return json({ ok: true }, 201);
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api/attempts') {
-      if (request.method === 'GET') return listAttempts(env);
-      if (request.method === 'POST') return createAttempt(request, env);
-      return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
+    try {
+      if (url.pathname.startsWith('/api/auth/')) return await authRoute(request, env, url.pathname);
+      if (url.pathname === '/api/attempts') {
+        const user = await currentUser(request, env);
+        if (!user) return authJson({ error: 'Please sign in to continue.' }, 401);
+        if (request.method === 'GET') return await listAttempts(env);
+        if (request.method === 'POST') { sameOrigin(request); return await createAttempt(request, env, user); }
+        return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
+      }
+      if (url.pathname.startsWith('/api/')) return authJson({ error: 'Not found.' }, 404);
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      if (error instanceof HttpError) return authJson({ error: error.message }, error.status, error.status === 429 ? { 'Retry-After': '900' } : {});
+      console.error(JSON.stringify({ event: 'api_failure', path: url.pathname }));
+      return authJson({ error: 'Something went wrong. Please try again.' }, 500);
     }
-    return env.ASSETS.fetch(request);
   },
 };
