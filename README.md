@@ -1,4 +1,4 @@
-# Matemko
+# Easy Math
 
 Playful maths practice for young explorers, built with Vue 3 and Vite.
 
