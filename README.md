@@ -77,10 +77,10 @@ Links carry a 256-bit token in the URL fragment (`/#verify=…`, `/#reset=…`),
 npx wrangler secret put RESEND_API_KEY
 ```
 
-and add a verified sender to `wrangler.jsonc`:
+The sender is set in `wrangler.jsonc` (its domain must be verified in Resend):
 
 ```jsonc
-"vars": { "MAIL_FROM": "Easy Math <hello@your-domain>" }
+"vars": { "MAIL_FROM": "Easy Math <hello@ricnovasoftware.com>" }
 ```
 
 Without these, production accounts still work, but no verification or reset emails are sent (a `mail_not_configured` error is logged). In local development the links are printed to the Worker console instead. `src/lib/mail.js` is the only file to change for another provider.
