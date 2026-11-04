@@ -33,7 +33,7 @@ npm test       # maths boundaries, scoring, rewards, dates and persistence
 npm run build # production static assets in dist/
 ```
 
-`src/App.vue` and `src/components/` contain the interface; `src/composables/useWorksheet.js` owns each practice attempt; `src/lib/` contains the maths, reward and auth logic. `src/worker.js` routes the API and `migrations/` holds the database schema.
+`src/App.vue` and `src/components/` contain the interface; `src/composables/useWorksheet.js` owns each practice attempt; `src/lib/` contains the maths, reward, auth and email logic. `src/worker.js` routes the API and `migrations/` holds the database schema.
 
 ## Deployment
 
@@ -57,8 +57,28 @@ Easy Math requires an account before practice and leaderboard access. Sign-up co
 
 Accounts live in the existing D1 database. Passwords are salted with cryptographic randomness and derived using native PBKDF2-SHA256 at the Workers runtime ceiling of 100,000 iterations. Session tokens use 256 bits of randomness; only SHA-256 token digests are stored. Production uses a seven-day Secure, HttpOnly, SameSite=Lax __Host- cookie. Sign-out revokes the current session. Requests must come from the same origin and auth attempts are throttled by email and hashed IP. No credentials are stored in browser localStorage.
 
-Sticker progress is device-local and scoped to account ID, so two signed-in accounts on the same browser do not share progress. The account name is used automatically, with no separate explorer-name field. Existing pre-account local progress is left untouched but is not automatically claimed by a new account. Cloud progress sync, email verification and password recovery are not included in this initial authentication flow.
+Sticker progress is device-local and scoped to account ID, so two signed-in accounts on the same browser do not share progress. The account name is used automatically, with no separate explorer-name field. Existing pre-account local progress is left untouched but is not automatically claimed by a new account. Progress does not sync between devices yet, and email addresses are not verified.
+
+### Password reset
+
+"Forgot your password?" sends a reset link. It gives the same answer whether or not the email has an account. Reset links work once, for one hour. A reset signs out every other device.
+
+Links carry a 256-bit token in the URL fragment (`/#reset=…`), so it never reaches server logs or Referer headers. Only SHA-256 digests are stored, in `auth_tokens`. Requests are throttled per email and per IP.
+
+**Email delivery needs a provider.** Easy Math sends through [Resend](https://resend.com):
+
+```sh
+npx wrangler secret put RESEND_API_KEY
+```
+
+and add a verified sender to `wrangler.jsonc`:
+
+```jsonc
+"vars": { "MAIL_FROM": "Easy Math <hello@your-domain>" }
+```
+
+Without these, production accounts still work, but no reset emails are sent (a `mail_not_configured` error is logged). In local development the links are printed to the Worker console instead. `src/lib/mail.js` is the only file to change for another provider.
 
 Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply matemko --remote`. Migrations from `0004` onwards were added after the original release. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
 
-`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership and my rounds. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.
+`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership, password reset and my rounds. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.

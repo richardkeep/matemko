@@ -112,14 +112,14 @@ async function apiRoute(request, env, url) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]', 'terminal.local'].includes(url.hostname)) {
       url.protocol = 'https:';
       return Response.redirect(url.toString(), 308);
     }
     try {
-      if (url.pathname.startsWith('/api/auth/')) return await authRoute(request, env, url.pathname);
+      if (url.pathname.startsWith('/api/auth/')) return await authRoute(request, env, url.pathname, ctx);
       if (url.pathname.startsWith('/api/')) return await apiRoute(request, env, url);
       return env.ASSETS.fetch(request);
     } catch (error) {

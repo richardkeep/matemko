@@ -80,6 +80,33 @@ test('a round\'s sums are saved, must match the score, and are only returned to 
   } finally { env.sqlite.close() }
 })
 
+const outbox = env => { const sent = []; env.MAILER = { send: message => { sent.push(message) } }; return sent }
+const tokenIn = (message, kind) => new RegExp(`#${kind}=([a-f0-9]{64})`).exec(message.text)[1]
+
+test('password reset answers the same for unknown emails, works once, expires and signs out other devices', async () => {
+  const env = database(); const sent = outbox(env)
+  try {
+    const oldSession = cookie(await call(env, '/api/auth/register', fields))
+    const unknown = await call(env, '/api/auth/forgot', { email: 'nobody@example.test' })
+    const known = await call(env, '/api/auth/forgot', { email: fields.email.toUpperCase() })
+    assert.equal(unknown.status, 200); assert.deepEqual(await unknown.json(), await known.json())
+    assert.equal(sent.length, 1); assert.equal(sent[0].to, fields.email)
+    const token = tokenIn(sent[0], 'reset')
+    assert.equal((await call(env, '/api/auth/reset', { token, password: 'short' })).status, 400)
+    const reset = await call(env, '/api/auth/reset', { token, password: 'A-brand-new-password' })
+    assert.equal(reset.status, 200); const body = await reset.json()
+    assert.equal((await (await call(env, '/api/auth/me', undefined, oldSession)).json()).user, null)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, cookie(reset))).json()).user.id, body.user.id)
+    assert.equal((await call(env, '/api/auth/reset', { token, password: 'Another-new-password' })).status, 400)
+    assert.equal((await call(env, '/api/auth/login', { email: fields.email, password: fields.password })).status, 401)
+    assert.equal((await call(env, '/api/auth/login', { email: fields.email, password: 'A-brand-new-password' })).status, 200)
+    await call(env, '/api/auth/forgot', { email: fields.email }); env.sqlite.exec('UPDATE auth_tokens SET expires_at = 1')
+    assert.equal((await call(env, '/api/auth/reset', { token: tokenIn(sent.at(-1), 'reset'), password: 'Expired-link-password' })).status, 400)
+    await call(env, '/api/auth/forgot', { email: fields.email })
+    assert.equal((await call(env, '/api/auth/forgot', { email: fields.email })).status, 429)
+  } finally { env.sqlite.close() }
+})
+
 test('my rounds include every round I played, with sums, and only mine', async () => {
   const env = database()
   try {
