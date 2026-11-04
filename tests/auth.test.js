@@ -4,10 +4,19 @@ import { DatabaseSync } from 'node:sqlite'
 import { readFileSync, readdirSync } from 'node:fs'
 import worker from '../src/worker.js'
 import { registration, hashPassword, verifyPassword, COOKIE } from '../src/lib/auth.js'
-function database() {
+import { migrate, statements } from '../src/lib/migrate.js'
+import { MIGRATIONS } from '../src/migrations.generated.js'
+// A fresh in-memory D1 stand-in. By default every migration is applied and recorded, as
+// `wrangler d1 migrations apply` would; pass a number to apply only the first few.
+function database(upTo = Infinity) {
   const sqlite = new DatabaseSync(':memory:')
-  for (const f of readdirSync(new URL('../migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).sort()) sqlite.exec(readFileSync(new URL('../migrations/' + f, import.meta.url), 'utf8'))
-  const DB = { prepare(sql) { const statement = sqlite.prepare(sql); let args = []; return { bind(...values) { args = values; return this }, async first() { return statement.get(...args) || null }, async all() { return { results: statement.all(...args) } }, async run() { statement.run(...args); return { success: true } } } }, async batch(statements) { const results = []; for (const s of statements) results.push(await s.run()); return results } }
+  sqlite.exec("CREATE TABLE d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)")
+  for (const f of readdirSync(new URL('../migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).sort().slice(0, upTo)) {
+    sqlite.exec(readFileSync(new URL('../migrations/' + f, import.meta.url), 'utf8'))
+    sqlite.prepare('INSERT INTO d1_migrations (name) VALUES (?)').run(f)
+  }
+  // Statements compile when they run, as in D1, so a batch can index a table it has just created
+  const DB = { prepare(sql) { let args = []; const statement = () => sqlite.prepare(sql); return { bind(...values) { args = values; return this }, async first() { return statement().get(...args) || null }, async all() { return { results: statement().all(...args) } }, async run() { statement().run(...args); return { success: true } } } }, async batch(statements) { sqlite.exec('BEGIN'); try { const results = []; for (const s of statements) results.push(await s.run()); sqlite.exec('COMMIT'); return results } catch (error) { sqlite.exec('ROLLBACK'); throw error } } }
   return { DB, sqlite, ASSETS: { fetch: () => new Response('app') } }
 }
 const fields = { name: 'Test Explorer', email: 'explorer@example.test', password: 'Long-test-password-7!', dateOfBirth: '2016-05-14' }
@@ -273,4 +282,38 @@ test('only a confirmed platform admin can see who is online, and never their pri
     assert.equal((await call(env, '/api/admin/online', undefined, admin, undefined)).status, 200)
     assert.equal((await call({ ...env, ADMIN_EMAILS: undefined }, '/api/admin/online', undefined, admin)).status, 404)
   } finally { env.sqlite.close() }
+})
+
+test('the Worker brings an older database up to date before serving, keeping existing data', async () => {
+  // A database that only has the first four migrations, with an existing round
+  const env = database(4)
+  try {
+    env.sqlite.exec("INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total) VALUES ('Old Timer', 0, 1000, '+', 10, 3, 5)")
+    const r = await call(env, '/api/auth/register', fields)
+    assert.equal(r.status, 201)
+    const names = env.sqlite.prepare('SELECT name FROM d1_migrations ORDER BY id').all().map(row => row.name)
+    assert.deepEqual(names, MIGRATIONS.map(m => m.name))
+    for (const table of ['auth_tokens', 'user_progress', 'guardian_links', 'presence']) assert.ok(env.sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table), table)
+    assert.equal(env.sqlite.prepare("SELECT count(*) AS n FROM attempts WHERE name = 'Old Timer'").get().n, 1)
+    assert.equal((await (await call(env, '/api/attempts', undefined, cookie(r))).json())[0].name, 'Old Timer')
+    // Running again is a no-op
+    assert.deepEqual(await migrate(env), [])
+  } finally { env.sqlite.close() }
+})
+
+test('a brand-new database is created from scratch, and a failed migration leaves nothing half-applied', async () => {
+  const env = database(0)
+  try {
+    assert.equal((await call(env, '/api/auth/me')).status, 200)
+    assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM d1_migrations').get().n, MIGRATIONS.length)
+    const broken = [{ name: '9999_broken.sql', sql: 'CREATE TABLE half_done (id INTEGER);\nCREATE TABLE attempts (id INTEGER);' }]
+    await assert.rejects(migrate(env, broken))
+    assert.equal(env.sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name = 'half_done'").get(), undefined)
+    assert.equal(env.sqlite.prepare("SELECT 1 FROM d1_migrations WHERE name = '9999_broken.sql'").get(), undefined)
+  } finally { env.sqlite.close() }
+})
+
+test('migration files split into statements without their comments', () => {
+  assert.deepEqual(statements("-- note; with semicolon\nCREATE TABLE a (x INTEGER); -- trailing\n\nALTER TABLE a ADD COLUMN y TEXT;\n"), ['CREATE TABLE a (x INTEGER)', 'ALTER TABLE a ADD COLUMN y TEXT'])
+  for (const m of MIGRATIONS) assert.ok(statements(m.sql).length > 0, m.name)
 })

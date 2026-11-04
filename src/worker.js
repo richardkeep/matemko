@@ -2,6 +2,7 @@ import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody, isAd
 import { cleanProblems, isCorrect, trickySums, MODE_PATTERN, TIME_LIMITS } from './lib/worksheet.js';
 import { mergeProgress } from './lib/progress.js';
 import { familyRoute, readProgressRow } from './lib/family.js';
+import { ensureMigrated } from './lib/migrate.js';
 // Serves the Vue build from ./dist and a small API backed by D1.
 //   GET  /api/attempts       -> each explorer's best round, best first (sums only for your own)
 //   POST /api/attempts       -> record an attempt
@@ -226,6 +227,8 @@ export default {
       return Response.redirect(url.toString(), 308);
     }
     try {
+      // Bring the database up to date before any API request touches it
+      if (url.pathname.startsWith('/api/')) await ensureMigrated(env);
       if (url.pathname.startsWith('/api/auth/')) return await authRoute(request, env, url.pathname, ctx);
       if (url.pathname.startsWith('/api/')) return await apiRoute(request, env, url);
       return env.ASSETS.fetch(request);

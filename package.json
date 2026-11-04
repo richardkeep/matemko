@@ -4,8 +4,8 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:worker": "wrangler d1 migrations apply easymath --local && wrangler dev",
-    "build": "vite build",
-    "test": "node --test tests/*.test.js",
+    "build": "node scripts/migrations.mjs && vite build",
+    "test": "node scripts/migrations.mjs --check && node --test tests/*.test.js",
     "deploy": "npm run build && wrangler d1 migrations apply easymath --remote && wrangler deploy"
   },
   "devDependencies": {
