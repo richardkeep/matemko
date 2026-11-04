@@ -3,10 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:worker": "wrangler d1 migrations apply matemko --local && wrangler dev",
+    "dev:worker": "wrangler d1 migrations apply easymath --local && wrangler dev",
     "build": "vite build",
     "test": "node --test tests/*.test.js",
-    "deploy": "npm run build && wrangler d1 migrations apply matemko --remote && wrangler deploy"
+    "deploy": "npm run build && wrangler d1 migrations apply easymath --remote && wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "4.156.0",

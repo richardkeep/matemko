@@ -85,6 +85,6 @@ The sender is set in `wrangler.jsonc` (its domain must be verified in Resend):
 
 Without these, production accounts still work, but no verification or reset emails are sent (a `mail_not_configured` error is logged). In local development the links are printed to the Worker console instead. `src/lib/mail.js` is the only file to change for another provider.
 
-Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply matemko --remote`. Migrations from `0004` onwards were added after the original release. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
+Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply easymath --remote`. Migrations from `0004` onwards were added after the original release. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
 
 `npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership, email verification, password reset, round modes and timers, my rounds, tricky sums, progress sync and family links. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.
