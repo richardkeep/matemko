@@ -155,7 +155,10 @@ async function adminOnline(env) {
   const now = Date.now();
   const { results } = await env.DB.prepare(
     `SELECT u.name, p.last_seen, p.activity, p.in_round, p.country,
-            (SELECT count(*) FROM attempts a WHERE a.user_id = u.id AND a.ended_at > ?) AS rounds_today
+            (SELECT count(*) FROM attempts a WHERE a.user_id = u.id AND a.ended_at > ?) AS rounds_today,
+            (SELECT count(*) FROM attempts a WHERE a.user_id = u.id) AS total_rounds,
+            (SELECT correct FROM attempts a WHERE a.user_id = u.id ORDER BY ${RANKING} LIMIT 1) AS best_right,
+            (SELECT total FROM attempts a WHERE a.user_id = u.id ORDER BY ${RANKING} LIMIT 1) AS best_total
        FROM presence p JOIN auth_users u ON u.id = p.user_id
       WHERE p.last_seen > ?
       ORDER BY p.in_round DESC, p.last_seen DESC`
@@ -169,7 +172,9 @@ async function adminOnline(env) {
   return json({
     now,
     onlineWindowMs: ONLINE_MS,
-    online: results.map(r => ({ name: r.name, lastSeen: r.last_seen, activity: r.activity, inRound: Boolean(r.in_round), country: r.country, roundsToday: r.rounds_today })),
+    online: results.map(r => ({ name: r.name, lastSeen: r.last_seen, activity: r.activity, inRound: Boolean(r.in_round), country: r.country, roundsToday: r.rounds_today, totalRounds: r.total_rounds,
+      // Best round by the star board's ranking; null before their first round
+      bestScore: r.best_total ? { right: r.best_right, total: r.best_total, percent: Math.round(r.best_right / r.best_total * 100) } : null })),
     counts: { online: results.length, activeToday: counts.active_today, activeWeek: counts.active_week, learners: counts.learners, roundsToday: counts.rounds_today },
   });
 }

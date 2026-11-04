@@ -259,10 +259,13 @@ test('only a confirmed platform admin can see who is online, and never their pri
     await call(env, '/api/presence', { activity: 'history', inRound: false }, idle)
     await call(env, '/api/presence', { activity: 'admin', inRound: false }, admin)
     env.sqlite.exec(`UPDATE presence SET last_seen = ${Date.now() - 10 * 60 * 1000} WHERE activity = 'history'`)
-    await call(env, '/api/attempts', { total: 1, right: 1, max: 10, ops: ['+'], durationMs: 1000 }, kid)
+    for (const [right, total] of [[2, 5], [4, 5], [3, 5]]) await call(env, '/api/attempts', { total, right, max: 10, ops: ['+'], durationMs: 1000 }, kid)
+    // One of the three rounds is older than a day: it counts in total rounds but not today
+    env.sqlite.exec(`UPDATE attempts SET ended_at = ${Date.now() - 3 * 86400000} WHERE correct = 2`)
     const view = await (await call(env, '/api/admin/online', undefined, admin)).json()
-    assert.deepEqual(view.online.map(p => [p.name, p.activity, p.inRound, p.roundsToday]), [['Kid', 'practice', true, 1], ['Admin', 'admin', false, 0]])
-    assert.deepEqual(view.counts, { online: 2, activeToday: 3, activeWeek: 3, learners: 3, roundsToday: 1 })
+    assert.deepEqual(view.online.map(p => [p.name, p.activity, p.inRound, p.roundsToday, p.totalRounds, p.bestScore]), [['Kid', 'practice', true, 2, 3, { right: 4, total: 5, percent: 80 }], ['Admin', 'admin', false, 0, 0, null]])
+    assert.deepEqual(view.online.find(p => p.name === 'Kid').roundsToday, 2)
+    assert.deepEqual(view.counts, { online: 2, activeToday: 3, activeWeek: 3, learners: 3, roundsToday: 2 })
     assert.equal(/@|dateOfBirth|2016-05-14/.test(JSON.stringify(view)), false)
     // Everyone else gets "not found"
     assert.equal((await call(env, '/api/admin/online', undefined, kid)).status, 404)
