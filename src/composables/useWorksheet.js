@@ -1,17 +1,26 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { generateWorksheet, isCorrect } from '../lib/worksheet'
+import { generateWorksheet, shuffle, isCorrect } from '../lib/worksheet'
+// Modes: 'mix' (choose operations and biggest number) and 'mistakes' (sums missed in earlier rounds).
 export function useWorksheet(user) {
   const name = ref(user.name); const max = ref(50); const count = ref(10); const ops = ref(['+', '−', '×', '÷'])
+  const mode = ref('mix'); const tricky = ref([])
   const equations = ref([]); const answers = ref([]); const checked = ref(false); const startedAt = ref(null); const endedAt = ref(null); const now = ref(0)
   const result = ref(null); const saveState = ref(''); const saveError = ref(''); let pendingAttempt = null; let round = 0
   const answered = computed(() => answers.value.filter(answer => String(answer).trim() !== '').length)
   const inProgress = computed(() => !checked.value && answered.value > 0)
   const locked = computed(() => inProgress.value || saveState.value === 'saving')
   const elapsed = computed(() => startedAt.value === null ? 0 : (endedAt.value ?? now.value) - startedAt.value)
+  const modeKey = computed(() => mode.value)
   const timer = setInterval(() => { if (inProgress.value) now.value = performance.now() }, 1000)
+  function build() {
+    if (mode.value === 'mistakes') return shuffle(tricky.value).slice(0, count.value)
+    return generateWorksheet({ max: max.value, count: count.value, ops: ops.value })
+  }
   function generate() {
     if (locked.value) return false
-    equations.value = generateWorksheet({ max: max.value, count: count.value, ops: ops.value })
+    const next = build()
+    if (!next.length) return false
+    equations.value = next
     answers.value = equations.value.map(() => ''); checked.value = false; startedAt.value = null; endedAt.value = null; now.value = 0; result.value = null; saveState.value = ''; saveError.value = ''; pendingAttempt = null; round++
     return true
   }
@@ -38,6 +47,11 @@ export function useWorksheet(user) {
       if (currentRound === round) { saveState.value = 'error'; saveError.value = error.name === 'TimeoutError' ? 'The connection timed out. You can retry saving your result.' : 'Your result is safe on this screen. Reconnect and try saving again.' }
     }
   }
+  // The biggest number a round can reach, shown on the star board as "Numbers to …"
+  function roundMax() {
+    if (mode.value === 'mistakes') return Math.max(1, ...equations.value.flatMap(e => [e.a, e.b, e.c]))
+    return max.value
+  }
   function check() {
     if (checked.value || !name.value.trim() || !answered.value) return
     endedAt.value = performance.now()
@@ -46,8 +60,8 @@ export function useWorksheet(user) {
     result.value = { right, total: equations.value.length, percent: Math.round(right / equations.value.length * 100), durationMs }
     checked.value = true
     pendingAttempt = {
-      name: name.value.trim(), max: max.value, ops: [...new Set(equations.value.map(equation => equation.op))], right, total: equations.value.length,
-      durationMs: Math.min(86400000, durationMs),
+      name: name.value.trim(), max: roundMax(), ops: [...new Set(equations.value.map(equation => equation.op))], right, total: equations.value.length,
+      durationMs: Math.min(86400000, durationMs), mode: modeKey.value,
       problems: equations.value.map((equation, index) => ({ a: equation.a, op: equation.op, b: equation.b, c: equation.c, hide: equation.hide, answer: String(answers.value[index]).trim() })),
     }
     void save()
@@ -56,5 +70,5 @@ export function useWorksheet(user) {
   window.addEventListener('beforeunload', beforeUnload)
   onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('beforeunload', beforeUnload) })
   generate()
-  return { name, max, count, ops, equations, answers, answered, checked, result, saveState, saveError, inProgress, locked, elapsed, generate, toggleOperation, setAnswer, check, save }
+  return { name, max, count, ops, mode, tricky, modeKey, equations, answers, answered, checked, result, saveState, saveError, inProgress, locked, elapsed, generate, toggleOperation, setAnswer, check, save }
 }

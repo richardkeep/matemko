@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { makeEquation, generateWorksheet, isCorrect, cleanProblems } from '../src/lib/worksheet.js'
+import { makeEquation, generateWorksheet, isCorrect, cleanProblems, trickySums, modeLabel, MODE_PATTERN } from '../src/lib/worksheet.js'
 import { emptyProgress, recordProgress, starsFor, BADGES, storeProgress, readProgress, mergeProgress, cleanProgress } from '../src/lib/progress.js'
 let seed = 179
 const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
@@ -53,6 +53,18 @@ test('saved sums keep only known fields and reject anything that does not add up
  assert.equal(cleanProblems([{a:2,op:'+',b:2,c:4,hide:'d',answer:'4'}],1),null)
  assert.equal(cleanProblems([{a:2,op:'+',b:2,c:4,hide:'c',answer:'-4'}],1),null)
  assert.equal(cleanProblems('nope',1),null)
+})
+test('tricky sums keep only sums whose latest try was wrong or skipped', () => {
+ const sum = (answer, a = 2) => ({ a, op: '+', b: 3, c: a + 3, hide: 'c', answer })
+ const newestFirst = [[sum('5'), sum('9', 4)], [sum('6'), sum('', 7)], [sum('1', 4)]]
+ assert.deepEqual(trickySums(newestFirst), [{ a: 4, op: '+', b: 3, c: 7, hide: 'c' }, { a: 7, op: '+', b: 3, c: 10, hide: 'c' }])
+ assert.deepEqual(trickySums([null, []]), [])
+ assert.equal(trickySums([Array.from({ length: 40 }, (_, i) => sum('', i))]).length, 30)
+})
+test('round modes are labelled and validated', () => {
+ assert.equal(modeLabel('mistakes'), 'Tricky sums'); assert.equal(modeLabel('mix'), ''); assert.equal(modeLabel(null), '')
+ for (const ok of ['mix', 'mistakes']) assert.ok(MODE_PATTERN.test(ok))
+ for (const bad of ['table-7', 'mix ', 'anything']) assert.equal(MODE_PATTERN.test(bad), false)
 })
 test('merging progress from two devices never double counts and keeps the most recent day', () => {
  const phone = { ...emptyProgress(), rounds: 4, correct: 30, stars: 9, perfect: 1, bestStreak: 2, streak: 2, lastDay: '2026-11-03', dailyStars: 4 }

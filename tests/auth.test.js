@@ -136,19 +136,32 @@ test('password reset answers the same for unknown emails, works once, expires an
   } finally { env.sqlite.close() }
 })
 
-test('my rounds include every round I played, with sums, and only mine', async () => {
+test('my rounds include every round I played with sums, and tricky sums come from my latest misses', async () => {
   const env = database()
   try {
     const me = cookie(await call(env, '/api/auth/register', fields))
     const other = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Other', email: 'other@example.test' }))
     const p = (a, answer) => ({ a, op: '+', b: 1, c: a + 1, hide: 'c', answer })
-    const round = problems => ({ total: problems.length, right: problems.filter(x => x.answer === String(x.c)).length, max: 20, ops: ['+'], durationMs: 1000, problems })
+    const round = problems => ({ total: problems.length, right: problems.filter(x => x.answer === String(x.c)).length, max: 20, ops: ['+'], durationMs: 1000, problems, mode: 'mix' })
     assert.equal((await call(env, '/api/attempts', round([p(1, '0'), p(2, '')]), me)).status, 201)
     assert.equal((await call(env, '/api/attempts', round([p(1, '2'), p(5, '6')]), me)).status, 201)
     assert.equal((await call(env, '/api/attempts', round([p(9, '0')]), other)).status, 201)
     const mine = await (await call(env, '/api/attempts/mine', undefined, me)).json()
-    assert.equal(mine.length, 2); assert.equal(mine[0].problems[1].a, 5)
+    assert.equal(mine.length, 2); assert.equal(mine[0].problems[1].a, 5); assert.equal(mine[0].mode, 'mix')
+    assert.deepEqual((await (await call(env, '/api/mistakes', undefined, me)).json()).problems, [{ a: 2, op: '+', b: 1, c: 3, hide: 'c' }])
     assert.equal((await call(env, '/api/attempts/mine')).status, 401)
+  } finally { env.sqlite.close() }
+})
+
+test('round modes are validated and tricky-sum rounds must include their sums', async () => {
+  const env = database()
+  try {
+    const me = cookie(await call(env, '/api/auth/register', fields))
+    const base = { total: 1, right: 1, max: 10, ops: ['+'], durationMs: 1000, problems: [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }] }
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'mistakes' }, me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'anything' }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, problems: undefined, mode: 'mistakes' }, me)).status, 400)
+    assert.equal((await (await call(env, '/api/attempts', undefined, me)).json())[0].mode, 'mistakes')
   } finally { env.sqlite.close() }
 })
 

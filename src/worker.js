@@ -1,10 +1,11 @@
 import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
-import { cleanProblems, isCorrect } from './lib/worksheet.js';
+import { cleanProblems, isCorrect, trickySums, MODE_PATTERN } from './lib/worksheet.js';
 import { cleanProgress, mergeProgress } from './lib/progress.js';
 // Serves the Vue build from ./dist and a small API backed by D1.
 //   GET  /api/attempts       -> top attempts, best first (sums only for your own rounds)
 //   POST /api/attempts       -> record an attempt
 //   GET  /api/attempts/mine  -> your own most recent rounds, with their sums
+//   GET  /api/mistakes       -> sums you most recently got wrong or skipped
 //   GET  /api/progress       -> your stars, stickers and streak
 //   POST /api/progress       -> merge this device's progress into your account
 //   /api/auth/*              -> accounts (see lib/auth.js)
@@ -31,13 +32,16 @@ export function parseAttempt(body) {
   if (!isInt(body.max, 1, 100000) || !isInt(body.durationMs, 0, DAY_MS)) return null;
   if (!Array.isArray(body.ops) || body.ops.length < 1 || body.ops.length > OPS.length) return null;
   if (!body.ops.every(op => OPS.includes(op)) || new Set(body.ops).size !== body.ops.length) return null;
-  // The sums are optional so pages loaded before they were added can still save; when sent, they must match the score
+  // The mode is optional so pages loaded before it existed can still save
+  const mode = body.mode ?? null;
+  if (mode !== null && (typeof mode !== 'string' || !MODE_PATTERN.test(mode))) return null;
+  // The sums are optional too; when sent, they must match the score
   let problems = null;
   if (body.problems !== undefined) {
     problems = cleanProblems(body.problems, body.total);
     if (!problems || !problems.every(p => body.ops.includes(p.op))) return null;
     if (problems.filter(p => isCorrect(p, p.answer)).length !== body.right) return null;
-  }
+  } else if (mode && mode !== 'mix') return null;
   const endedAt = Date.now();
   return {
     name,
@@ -48,11 +52,12 @@ export function parseAttempt(body) {
     right: body.right,
     total: body.total,
     problems,
+    mode,
   };
 }
 
 const parseProblems = text => { try { return text ? JSON.parse(text) : null; } catch { return null; } };
-const COLUMNS = 'id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems';
+const COLUMNS = 'id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode';
 const roundJson = (r, withProblems) => ({
   id: r.id,
   name: r.name,
@@ -63,6 +68,7 @@ const roundJson = (r, withProblems) => ({
   right: r.correct,
   total: r.total,
   country: r.country,
+  mode: r.mode,
   problems: withProblems ? parseProblems(r.problems) : null,
 });
 
@@ -80,6 +86,11 @@ async function listAttempts(env, user) {
 async function roundsFor(env, userId, limit = MINE_LIMIT) {
   const { results } = await env.DB.prepare(`SELECT ${COLUMNS} FROM attempts WHERE user_id = ? ORDER BY id DESC LIMIT ?`).bind(userId, limit).all();
   return results.map(r => roundJson(r, true));
+}
+
+async function listMistakes(env, user) {
+  const { results } = await env.DB.prepare('SELECT problems FROM attempts WHERE user_id = ? AND problems IS NOT NULL ORDER BY id DESC LIMIT 30').bind(user.id).all();
+  return json({ problems: trickySums(results.map(r => parseProblems(r.problems))) });
 }
 
 async function readProgressRow(env, userId) {
@@ -114,9 +125,9 @@ async function createAttempt(request, env, user) {
   const cc = request.cf?.country;
   const country = typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
   await env.DB.prepare(
-    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id, a.problems && JSON.stringify(a.problems)).run();
+    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id, a.problems && JSON.stringify(a.problems), a.mode).run();
   return json({ ok: true }, 201);
 }
 
@@ -130,6 +141,7 @@ async function apiRoute(request, env, url) {
     return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
   }
   if (request.method === 'GET' && path === '/api/attempts/mine') return json(await roundsFor(env, user.id));
+  if (request.method === 'GET' && path === '/api/mistakes') return listMistakes(env, user);
   if (path === '/api/progress') return progressRoute(request, env, user);
   return authJson({ error: 'Not found.' }, 404);
 }

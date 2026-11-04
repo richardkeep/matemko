@@ -10,7 +10,7 @@ import ExplorerProgress from './components/ExplorerProgress.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import { BADGES, mergeProgress, readProgress, recordProgress, storeProgress, starsFor } from './lib/progress'
 import { useWorksheet } from './composables/useWorksheet'
-import { formatDuration } from './lib/worksheet'
+import { formatDuration, modeLabel } from './lib/worksheet'
 const props = defineProps({ user: { type: Object, required: true }, notice: { type: Object, default: null } })
 const emit = defineEmits(['signed-out', 'user', 'dismiss-notice'])
 const signingOut = ref(false); const signOutError = ref('')
@@ -21,7 +21,7 @@ async function signOut() {
   catch { signOutError.value = 'Could not sign out. Please try again.' }
   finally { signingOut.value = false }
 }
-const { name, max, count, ops, equations, answers, answered, checked, result, saveState, saveError, inProgress, locked, elapsed, generate, toggleOperation, setAnswer, check, save } = useWorksheet(props.user)
+const { name, max, count, ops, mode, tricky, modeKey, equations, answers, answered, checked, result, saveState, saveError, inProgress, locked, elapsed, generate, toggleOperation, setAnswer, check, save } = useWorksheet(props.user)
 const progress = ref(readProgress('account:' + props.user.id)); const newBadges = ref([]); const showStickers = ref(false); const mystery = ref(false)
 watch(name, value => { progress.value = readProgress('account:' + props.user.id); newBadges.value = [] })
 watch(result, value => {
@@ -43,7 +43,27 @@ async function syncProgress() {
   } catch { syncState.value = 'offline' }
 }
 onMounted(syncProgress)
-watch([max, count, ops], () => { if (!locked.value) generate() })
+// Tricky sums come from the learner's earlier rounds on the server
+const trickyState = ref(''); const trickyNotice = ref('')
+async function loadTricky() {
+  trickyState.value = 'loading'
+  try { const r = await fetch('/api/mistakes', { signal: AbortSignal.timeout(15000) }); if (!r.ok) throw new Error(); tricky.value = (await r.json()).problems; trickyState.value = '' }
+  catch { tricky.value = []; trickyState.value = 'error' }
+  return tricky.value.length > 0
+}
+let fallingBack = false
+async function regenerate() {
+  if (locked.value) return false
+  if (!fallingBack) trickyNotice.value = ''
+  fallingBack = false
+  if (mode.value === 'mistakes' && !(await loadTricky())) {
+    if (trickyState.value === 'error') return false
+    trickyNotice.value = progress.value.rounds ? 'No tricky sums right now — you fixed them all! 🎉 Here is a fresh mix instead.' : 'Play a round first. Any sums you miss will wait for you in Tricky sums.'
+    fallingBack = true; mode.value = 'mix'; return false
+  }
+  return generate()
+}
+watch([max, count, ops, mode], () => { void regenerate() })
 // Verification is a gentle nudge, not a gate, so existing explorers can keep playing
 const verifyState = ref('')
 async function resendVerification() {
@@ -60,7 +80,7 @@ const unanswered = computed(() => equations.value.length - answered.value)
 const worksheetPages = computed(() => Array.from({ length: Math.ceil(equations.value.length / 30) }, (_, index) => ({ start: index * 30, equations: equations.value.slice(index * 30, index * 30 + 30) })))
 async function newRound() {
   mystery.value = false
-  if (generate()) { roundNumber.value++; await nextTick(); document.getElementById('answer-0')?.focus() }
+  if (await regenerate()) { roundNumber.value++; await nextTick(); document.getElementById('answer-0')?.focus() }
 }
 async function nextAnswer(index) { await nextTick(); const next = document.getElementById(`answer-${index + 1}`); if (next) next.focus(); else document.getElementById('check-answers')?.focus() }
 async function continueExploring() { showSkipped.value = false; await nextTick(); document.getElementById(`answer-${answers.value.findIndex(answer => !String(answer).trim())}`)?.focus() }
@@ -68,11 +88,13 @@ function requestCheck() { if (unanswered.value) showSkipped.value = true; else f
 async function finishRound() { showSkipped.value = false; check(); await nextTick(); document.getElementById('round-result')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
 async function surpriseRound() {
   if (locked.value) return
+  mode.value = 'mix'
   max.value = [10, 20, 50][Math.floor(Math.random() * 3)]; count.value = 5
   ops.value = [['+'], ['−'], ['×'], ['÷'], ['+', '−']][Math.floor(Math.random() * 5)]
   await nextTick(); await newRound(); mystery.value = true
 }
 function printWorksheet() { window.print() }
+const roundTitle = computed(() => modeLabel(modeKey.value))
 const message = computed(() => !result.value ? '' : result.value.percent === 100 ? "Wow! You're a maths superstar!" : result.value.percent >= 70 ? 'Look at you go, clever explorer!' : 'A little braver. A little brighter!')
 </script>
 <template>
@@ -90,11 +112,11 @@ const message = computed(() => !result.value ? '' : result.value.percent === 100
       <template v-if="view === 'practice'">
         <section class="welcome-banner"><div class="welcome-copy"><span class="eyebrow"><span class="tiny-star">✦</span> BIG FUN. LITTLE SUMS.</span><h1>Ready, maths<br>explorer<span class="heading-dot">?</span></h1><p>Find the missing numbers. Collect little wins.<br class="desktop-break"> Watch your confidence grow.</p></div><MathMascot /><div class="welcome-note"><span class="note-star">✦</span><strong>You've got this!</strong><span>One little sum at a time.</span></div></section>
         <div class="practice-layout">
-          <div class="setup-column"><PracticeSetup :name="name" v-model:max="max" v-model:count="count" :ops="ops" :locked="locked" @toggle="toggleOperation" @generate="newRound" /><button class="surprise-button" :disabled="locked" @click="surpriseRound"><span>🎲</span><span><strong>Surprise me!</strong><small>A five-question mystery mission</small></span><ArrowRight :size="19" /></button><ExplorerProgress :progress="progress" :name="name" :sync-state="syncState" @stickers="showStickers = true" /></div>
+          <div class="setup-column"><PracticeSetup :name="name" v-model:max="max" v-model:count="count" v-model:mode="mode" :ops="ops" :locked="locked" :tricky-state="trickyState" @toggle="toggleOperation" @generate="newRound" /><p v-if="trickyNotice" class="tricky-notice" role="status">{{ trickyNotice }}</p><button class="surprise-button" :disabled="locked" @click="surpriseRound"><span>🎲</span><span><strong>Surprise me!</strong><small>A five-question mystery mission</small></span><ArrowRight :size="19" /></button><ExplorerProgress :progress="progress" :name="name" :sync-state="syncState" @stickers="showStickers = true" /></div>
           <section class="practice-workspace" aria-labelledby="worksheet-title">
-            <div v-if="result" class="celebration-confetti" aria-hidden="true"><span v-for="index in 12" :key="`${roundNumber}-${index}`" :style="{ '--i': index }">{{ ['✦','●','★','◆'][index % 4] }}</span></div><div v-if="result" id="round-result" class="round-result" tabindex="-1" aria-live="polite"><span class="result-star" aria-hidden="true">{{ result.percent === 100 ? '🌟' : '⭐' }}</span><div class="result-copy"><span class="eyebrow">GIVE YOURSELF A HIGH FIVE</span><h2>{{ message }}</h2><div class="earned-round-stars" :aria-label="`${starsFor(result)} stars earned`"><span v-for="star in 3" :key="star" :class="{ earned: star <= starsFor(result) }" aria-hidden="true">★</span><b>+{{ starsFor(result) }} {{ starsFor(result) === 1 ? 'star' : 'stars' }}!</b></div><p>You found {{ result.right }} of {{ result.total }} missing numbers in {{ formatDuration(result.durationMs) }}.</p><small v-if="saveState === 'saving'" class="save-note"><CloudUpload :size="14" />Saving your star…</small><small v-else-if="saveState === 'saved'" class="save-note"><CheckCircle2 :size="14" />Your result is on the star board!</small><div v-else-if="saveState === 'error'" class="save-error"><span>{{ saveError }}</span><button @click="save">Try saving again</button></div></div><div v-if="newBadges.length" class="new-badges"><span v-for="badge in newBadges" :key="badge.id">{{ badge.emoji }} New sticker: {{ badge.name }}</span></div><div class="score-orbit"><strong>{{ result.percent }}<span>%</span></strong><small>Brilliant effort!</small></div></div>
+            <div v-if="result" class="celebration-confetti" aria-hidden="true"><span v-for="index in 12" :key="`${roundNumber}-${index}`" :style="{ '--i': index }">{{ ['✦','●','★','◆'][index % 4] }}</span></div><div v-if="result" id="round-result" class="round-result" tabindex="-1" aria-live="polite"><span class="result-star" aria-hidden="true">{{ result.percent === 100 ? '🌟' : '⭐' }}</span><div class="result-copy"><span class="eyebrow">GIVE YOURSELF A HIGH FIVE</span><h2>{{ message }}</h2><div class="earned-round-stars" :aria-label="`${starsFor(result)} stars earned`"><span v-for="star in 3" :key="star" :class="{ earned: star <= starsFor(result) }" aria-hidden="true">★</span><b>+{{ starsFor(result) }} {{ starsFor(result) === 1 ? 'star' : 'stars' }}!</b></div><p>You found {{ result.right }} of {{ result.total }} missing numbers in {{ formatDuration(result.durationMs) }}.<template v-if="result.right < result.total"> The ones you missed will wait for you in <b>Tricky sums</b>.</template></p><small v-if="saveState === 'saving'" class="save-note"><CloudUpload :size="14" />Saving your star…</small><small v-else-if="saveState === 'saved'" class="save-note"><CheckCircle2 :size="14" />Your result is on the star board!</small><div v-else-if="saveState === 'error'" class="save-error"><span>{{ saveError }}</span><button @click="save">Try saving again</button></div></div><div v-if="newBadges.length" class="new-badges"><span v-for="badge in newBadges" :key="badge.id">{{ badge.emoji }} New sticker: {{ badge.name }}</span></div><div class="score-orbit"><strong>{{ result.percent }}<span>%</span></strong><small>Brilliant effort!</small></div></div>
             <div class="worksheet-card">
-              <div class="worksheet-toolbar"><div><span class="eyebrow">{{ checked ? 'ADVENTURE COMPLETE' : mystery ? 'MYSTERY MISSION · FIVE LITTLE SUMS' : 'YOUR LITTLE BRAIN STRETCH' }}</span><h2 id="worksheet-title">{{ name.trim() ? `${name.trim()}'s adventure` : 'Your maths adventure' }}<span class="round-tag">#{{ String(roundNumber).padStart(2, '0') }}</span></h2></div><button class="icon-button" @click="printWorksheet" aria-label="Print worksheet" title="Print worksheet"><Printer :size="20" /></button></div>
+              <div class="worksheet-toolbar"><div><span class="eyebrow">{{ checked ? 'ADVENTURE COMPLETE' : mystery ? 'MYSTERY MISSION · FIVE LITTLE SUMS' : roundTitle ? roundTitle.toUpperCase() : 'YOUR LITTLE BRAIN STRETCH' }}</span><h2 id="worksheet-title">{{ name.trim() ? `${name.trim()}'s adventure` : 'Your maths adventure' }}<span class="round-tag">#{{ String(roundNumber).padStart(2, '0') }}</span></h2></div><button class="icon-button" @click="printWorksheet" aria-label="Print worksheet" title="Print worksheet"><Printer :size="20" /></button></div>
               <div class="progress-toolbar"><div class="progress-label"><span :class="['status-dot', { running: inProgress, complete: checked }]"></span><span>{{ checked ? 'All checked. Great exploring!' : `${answered} of ${equations.length} answered` }}</span></div><div class="timer"><Timer :size="17" /><span>{{ formatDuration(elapsed) }}</span></div></div>
               <div class="progress-track" role="progressbar" :aria-valuenow="answered" :aria-valuemax="equations.length" aria-valuemin="0" aria-label="Questions answered"><span :style="{ width: `${answered / equations.length * 100}%` }"></span></div>
               <div class="question-area">
@@ -112,6 +134,6 @@ const message = computed(() => !result.value ? '' : result.value.percent === 100
     <footer class="site-footer"><span class="footer-brand">Easy Math<span>✦</span><small>Little sums. Lovely possibilities.</small></span><span>Made for curious little minds <Heart :size="13" /></span><a href="https://github.com/cannonsh/matemko" target="_blank" rel="noopener noreferrer">Inspired by Lovro Papež <span>↗</span></a></footer>
     <AppDialog v-model="showSkipped" class="app-dialog" @keydown.esc="showSkipped = false" aria-modal="true" aria-labelledby="skipped-title"><div class="dialog-scrim" @click="showSkipped = false"></div><div class="dialog-body"><span class="dialog-symbol">🧩</span><h2 id="skipped-title">A few numbers are still hiding!</h2><p>You have {{ unanswered }} unanswered {{ unanswered === 1 ? 'question' : 'questions' }}. Would you like to give them a try first?</p><div class="dialog-actions"><button class="button primary" autofocus @click="continueExploring">Keep exploring</button><button class="button secondary" @click="finishRound">Check anyway</button></div></div></AppDialog>
     <AppDialog v-model="showStickers" class="app-dialog" @keydown.esc="showStickers = false" aria-modal="true" aria-labelledby="sticker-title"><div class="dialog-scrim" @click="showStickers = false"></div><div class="dialog-body stickers-dialog"><button class="dialog-close icon-button" @click="showStickers = false" aria-label="Close sticker book"><X :size="21" /></button><span class="dialog-symbol">🎒</span><span class="eyebrow">LITTLE WINS TO KEEP</span><h2 id="sticker-title">{{ name.trim() ? `${name.trim()}'s sticker book` : 'Your sticker book' }}</h2><p>Every adventure brings a new discovery.</p><div class="sticker-grid"><article v-for="badge in BADGES" :key="badge.id" :class="{ unlocked: badge.test(progress) }"><span>{{ badge.test(progress) ? badge.emoji : '🔒' }}</span><h3>{{ badge.name }}</h3><p>{{ badge.description }}</p><small>{{ badge.test(progress) ? 'You earned this!' : 'Ready to discover' }}</small></article></div><div class="sticker-totals"><span>⭐ {{ progress.stars }} stars</span><span>🚀 {{ progress.rounds }} {{ progress.rounds === 1 ? 'adventure' : 'adventures' }}</span></div></div></AppDialog>
-    <AppDialog v-model="showHelp" class="app-dialog" @keydown.esc="showHelp = false" aria-modal="true" aria-labelledby="help-title"><div class="dialog-scrim" @click="showHelp = false"></div><div class="dialog-body help-dialog"><button class="dialog-close icon-button" @click="showHelp = false" aria-label="Close help"><X :size="21" /></button><span class="dialog-symbol">✨</span><h2 id="help-title">Let's find those numbers!</h2><ol class="help-steps"><li><span>1</span><div><strong>Make it yours</strong><p>Choose your favourite operations and how many sums to try. Your signed-in name is used automatically.</p></div></li><li><span>2</span><div><strong>Find what's hiding</strong><p>A number is missing from each sum. Pop it in the box! Press Enter to move to the next one.</p></div></li><li><span>3</span><div><strong>Celebrate your progress</strong><p>Check your answers, learn from the ones you missed, and see your result on the star board.</p></div></li></ol><button class="button primary" @click="showHelp = false">I've got it! <Sparkles :size="18" /></button></div></AppDialog>
+    <AppDialog v-model="showHelp" class="app-dialog" @keydown.esc="showHelp = false" aria-modal="true" aria-labelledby="help-title"><div class="dialog-scrim" @click="showHelp = false"></div><div class="dialog-body help-dialog"><button class="dialog-close icon-button" @click="showHelp = false" aria-label="Close help"><X :size="21" /></button><span class="dialog-symbol">✨</span><h2 id="help-title">Let's find those numbers!</h2><ol class="help-steps"><li><span>1</span><div><strong>Make it yours</strong><p>Mix up the operations or fix your tricky sums, and choose how many sums to try. Your signed-in name is used automatically.</p></div></li><li><span>2</span><div><strong>Find what's hiding</strong><p>A number is missing from each sum. Pop it in the box! Press Enter to move to the next one.</p></div></li><li><span>3</span><div><strong>Celebrate your progress</strong><p>Check your answers, learn from the ones you missed, and see your result on the star board.</p></div></li></ol><button class="button primary" @click="showHelp = false">I've got it! <Sparkles :size="18" /></button></div></AppDialog>
   </div>
 </template>

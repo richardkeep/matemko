@@ -27,6 +27,25 @@ export function generateWorksheet({ max, count, ops }, random = Math.random) {
   }
   return equations
 }
+export const MODE_PATTERN = /^(mix|mistakes)$/
+export function shuffle(items, random = Math.random) {
+  const copy = [...items]
+  for (let i = copy.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [copy[i], copy[j]] = [copy[j], copy[i]] }
+  return copy
+}
+// Sums whose most recent try was wrong or skipped. Rounds are newest first.
+export function trickySums(rounds, limit = 30) {
+  const latest = new Map()
+  for (const problems of rounds) for (const p of problems || []) {
+    const key = `${p.a}${p.op}${p.b}=${p.c}:${p.hide}`
+    if (!latest.has(key)) latest.set(key, { problem: { a: p.a, op: p.op, b: p.b, c: p.c, hide: p.hide }, right: isCorrect(p, p.answer) })
+  }
+  return [...latest.values()].filter(item => !item.right).slice(0, limit).map(item => item.problem)
+}
+export function modeLabel(mode) {
+  if (!mode || mode === 'mix') return ''
+  return mode === 'mistakes' ? 'Tricky sums' : ''
+}
 export function isCorrect(equation, answer) {
   return String(answer ?? '').trim() !== '' && /^\d+$/.test(String(answer).trim()) && Number(answer) === equation[equation.hide]
 }
