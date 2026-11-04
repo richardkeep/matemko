@@ -29,7 +29,7 @@ export function generateWorksheet({ max, count, ops }, random = Math.random) {
 }
 export const TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 export const BOND_TARGETS = [10, 20, 100]
-export const TIME_LIMITS = [60000, 120000, 180000]
+export const TIME_LIMITS = [1, 2, 3, 4, 5, 10, 15, 20, 30].map(minutes => minutes * 60000)
 export const MODE_PATTERN = /^(mix|mistakes|table-(?:[2-9]|1[0-2])|bonds-(?:10|20|100))$/
 // Times-table drill: every sum uses the chosen table, on either side of the ×
 export function generateTable({ table, count }, random = Math.random) {

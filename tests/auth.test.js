@@ -164,11 +164,14 @@ test('round modes and timers are validated against the sums', async () => {
     assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-99' }, me)).status, 400)
     assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 45000 }, me)).status, 400)
     assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 60000, durationMs: 90000 }, me)).status, 400)
+    for (const minutes of [4, 5, 10, 15, 20, 30]) assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: minutes * 60000, durationMs: minutes * 60000 }, me)).status, 201, `${minutes} minutes`)
+    for (const minutes of [6, 25, 31, 60]) assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: minutes * 60000 }, me)).status, 400, `${minutes} minutes`)
     const bonds = [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }, { a: 10, op: '−', b: 3, c: 7, hide: 'c', answer: '' }]
     assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 10, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-10' }, me)).status, 201)
     assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 20, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-20' }, me)).status, 400)
     const mine = await (await call(env, '/api/attempts/mine', undefined, me)).json()
-    assert.deepEqual(mine.map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
+    assert.deepEqual(mine.map(r => [r.mode, r.timeLimitMs]).filter(r => r[1] !== null && r[1] > 60000).length, 6)
+    assert.deepEqual(mine.filter(r => r.timeLimitMs === null || r.timeLimitMs === 60000).map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
     const board = await (await call(env, '/api/attempts', undefined, me)).json()
     assert.deepEqual(board.map(r => [r.mode, r.timeLimitMs]), [['table-7', 60000]])
   } finally { env.sqlite.close() }

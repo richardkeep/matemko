@@ -13,7 +13,7 @@ Playful maths practice for young explorers, built with Vue 3 and Vite.
   - **Times tables**: drill one table from 2 to 12. Each round covers 1–12 before anything repeats.
   - **Number bonds**: pairs that make 10, 20 or 100, as a missing addend or a subtraction from the target.
   - **Tricky sums**: sums the learner most recently got wrong or skipped. Getting one right takes it off the list.
-- Any adventure can be played against the clock (1, 2 or 3 minutes). The clock starts with the first answer and the round is checked automatically when time runs out.
+- Any adventure can be played against the clock (1, 2, 3, 4, 5, 10, 15, 20 or 30 minutes). The clock starts with the first answer and the round is checked automatically when time runs out.
 - 5–30 questions per round. Settings lock once an attempt starts.
 - Large answer boxes, keyboard navigation, friendly explanations, a cheerful star mascot and responsive phone layouts.
 - Earn 1–3 stars per completed round, follow a five-star daily trail, collect six achievement stickers, and build a practice streak.
