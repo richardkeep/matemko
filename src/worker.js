@@ -1,9 +1,12 @@
 import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
 import { cleanProblems, isCorrect } from './lib/worksheet.js';
+import { cleanProgress, mergeProgress } from './lib/progress.js';
 // Serves the Vue build from ./dist and a small API backed by D1.
 //   GET  /api/attempts       -> top attempts, best first (sums only for your own rounds)
 //   POST /api/attempts       -> record an attempt
 //   GET  /api/attempts/mine  -> your own most recent rounds, with their sums
+//   GET  /api/progress       -> your stars, stickers and streak
+//   POST /api/progress       -> merge this device's progress into your account
 //   /api/auth/*              -> accounts (see lib/auth.js)
 
 const OPS = ['+', '−', '×', '÷'];
@@ -79,6 +82,25 @@ async function roundsFor(env, userId, limit = MINE_LIMIT) {
   return results.map(r => roundJson(r, true));
 }
 
+async function readProgressRow(env, userId) {
+  const row = await env.DB.prepare('SELECT data FROM user_progress WHERE user_id = ?').bind(userId).first();
+  try { return cleanProgress(row ? JSON.parse(row.data) : null); } catch { return cleanProgress(null); }
+}
+
+async function progressRoute(request, env, user) {
+  if (request.method === 'GET') return json({ progress: await readProgressRow(env, user.id) });
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
+  sameOrigin(request);
+  const body = await readBody(request);
+  if (!body.progress || typeof body.progress !== 'object') return json({ error: 'Invalid progress' }, 400);
+  const merged = mergeProgress(await readProgressRow(env, user.id), body.progress);
+  await env.DB.prepare(
+    `INSERT INTO user_progress (user_id, data, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+  ).bind(user.id, JSON.stringify(merged), Date.now()).run();
+  return json({ progress: merged });
+}
+
 async function createAttempt(request, env, user) {
   let body;
   try {
@@ -108,6 +130,7 @@ async function apiRoute(request, env, url) {
     return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
   }
   if (request.method === 'GET' && path === '/api/attempts/mine') return json(await roundsFor(env, user.id));
+  if (path === '/api/progress') return progressRoute(request, env, user);
   return authJson({ error: 'Not found.' }, 404);
 }
 

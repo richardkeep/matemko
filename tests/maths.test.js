@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { makeEquation, generateWorksheet, isCorrect, cleanProblems } from '../src/lib/worksheet.js'
-import { emptyProgress, recordProgress, starsFor, BADGES, storeProgress, readProgress } from '../src/lib/progress.js'
+import { emptyProgress, recordProgress, starsFor, BADGES, storeProgress, readProgress, mergeProgress, cleanProgress } from '../src/lib/progress.js'
 let seed = 179
 const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
 test('all four operations stay within each selected range and use whole numbers', () => {
@@ -53,4 +53,14 @@ test('saved sums keep only known fields and reject anything that does not add up
  assert.equal(cleanProblems([{a:2,op:'+',b:2,c:4,hide:'d',answer:'4'}],1),null)
  assert.equal(cleanProblems([{a:2,op:'+',b:2,c:4,hide:'c',answer:'-4'}],1),null)
  assert.equal(cleanProblems('nope',1),null)
+})
+test('merging progress from two devices never double counts and keeps the most recent day', () => {
+ const phone = { ...emptyProgress(), rounds: 4, correct: 30, stars: 9, perfect: 1, bestStreak: 2, streak: 2, lastDay: '2026-11-03', dailyStars: 4 }
+ const tablet = { ...emptyProgress(), rounds: 6, correct: 25, stars: 12, mixed: 1, bestStreak: 1, streak: 1, lastDay: '2026-11-04', dailyStars: 2 }
+ const merged = mergeProgress(phone, tablet)
+ assert.deepEqual(merged, { rounds: 6, correct: 30, stars: 12, perfect: 1, mixed: 1, streak: 1, bestStreak: 2, lastDay: '2026-11-04', dailyStars: 2 })
+ assert.deepEqual(mergeProgress(merged, merged), merged)
+ assert.deepEqual(mergeProgress(phone, tablet), mergeProgress(tablet, phone))
+ assert.deepEqual(cleanProgress({ rounds: -3, stars: 'x', lastDay: 'yesterday', evil: 1 }), emptyProgress())
+ assert.deepEqual(mergeProgress(null, phone), cleanProgress(phone))
 })

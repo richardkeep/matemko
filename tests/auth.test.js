@@ -151,3 +151,17 @@ test('my rounds include every round I played, with sums, and only mine', async (
     assert.equal((await call(env, '/api/attempts/mine')).status, 401)
   } finally { env.sqlite.close() }
 })
+
+test('progress syncs across devices by merging, per account', async () => {
+  const env = database()
+  try {
+    const me = cookie(await call(env, '/api/auth/register', fields))
+    const other = cookie(await call(env, '/api/auth/register', { ...fields, email: 'other@example.test' }))
+    assert.equal((await (await call(env, '/api/progress', undefined, me)).json()).progress.rounds, 0)
+    await call(env, '/api/progress', { progress: { rounds: 5, stars: 10, lastDay: '2026-11-03', streak: 2, bestStreak: 2, dailyStars: 3 } }, me)
+    const merged = (await (await call(env, '/api/progress', { progress: { rounds: 2, stars: 4, lastDay: '2026-11-04', streak: 3, dailyStars: 1, hacked: true } }, me)).json()).progress
+    assert.equal(merged.rounds, 5); assert.equal(merged.stars, 10); assert.equal(merged.lastDay, '2026-11-04'); assert.equal(merged.streak, 3); assert.equal(merged.bestStreak, 3); assert.equal(merged.hacked, undefined)
+    assert.equal((await (await call(env, '/api/progress', undefined, other)).json()).progress.rounds, 0)
+    assert.equal((await call(env, '/api/progress', { progress: {} }, me, 'https://evil.example')).status, 403)
+  } finally { env.sqlite.close() }
+})

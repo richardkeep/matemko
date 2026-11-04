@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History, MailWarning } from 'lucide-vue-next'
 import AppDialog from './components/AppDialog.vue'
 import MathMascot from './components/MathMascot.vue'
@@ -8,7 +8,7 @@ import EquationCard from './components/EquationCard.vue'
 import LeaderboardPanel from './components/LeaderboardPanel.vue'
 import ExplorerProgress from './components/ExplorerProgress.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
-import { BADGES, readProgress, recordProgress, storeProgress, starsFor } from './lib/progress'
+import { BADGES, mergeProgress, readProgress, recordProgress, storeProgress, starsFor } from './lib/progress'
 import { useWorksheet } from './composables/useWorksheet'
 import { formatDuration } from './lib/worksheet'
 const props = defineProps({ user: { type: Object, required: true }, notice: { type: Object, default: null } })
@@ -30,7 +30,19 @@ watch(result, value => {
   progress.value = recordProgress(progress.value, value, equations.value.map(equation => equation.op))
   newBadges.value = BADGES.filter(badge => badge.test(progress.value) && !oldIds.has(badge.id))
   storeProgress('account:' + props.user.id, progress.value)
+  void syncProgress()
 })
+// Progress lives on the device for instant feedback and is merged into the account so it follows the learner.
+const syncState = ref('')
+async function syncProgress() {
+  try {
+    const r = await fetch('/api/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progress: progress.value }), signal: AbortSignal.timeout(15000) })
+    if (!r.ok) throw new Error()
+    progress.value = mergeProgress(progress.value, (await r.json()).progress)
+    storeProgress('account:' + props.user.id, progress.value); syncState.value = 'synced'
+  } catch { syncState.value = 'offline' }
+}
+onMounted(syncProgress)
 watch([max, count, ops], () => { if (!locked.value) generate() })
 // Verification is a gentle nudge, not a gate, so existing explorers can keep playing
 const verifyState = ref('')
@@ -78,7 +90,7 @@ const message = computed(() => !result.value ? '' : result.value.percent === 100
       <template v-if="view === 'practice'">
         <section class="welcome-banner"><div class="welcome-copy"><span class="eyebrow"><span class="tiny-star">✦</span> BIG FUN. LITTLE SUMS.</span><h1>Ready, maths<br>explorer<span class="heading-dot">?</span></h1><p>Find the missing numbers. Collect little wins.<br class="desktop-break"> Watch your confidence grow.</p></div><MathMascot /><div class="welcome-note"><span class="note-star">✦</span><strong>You've got this!</strong><span>One little sum at a time.</span></div></section>
         <div class="practice-layout">
-          <div class="setup-column"><PracticeSetup :name="name" v-model:max="max" v-model:count="count" :ops="ops" :locked="locked" @toggle="toggleOperation" @generate="newRound" /><button class="surprise-button" :disabled="locked" @click="surpriseRound"><span>🎲</span><span><strong>Surprise me!</strong><small>A five-question mystery mission</small></span><ArrowRight :size="19" /></button><ExplorerProgress :progress="progress" :name="name" @stickers="showStickers = true" /></div>
+          <div class="setup-column"><PracticeSetup :name="name" v-model:max="max" v-model:count="count" :ops="ops" :locked="locked" @toggle="toggleOperation" @generate="newRound" /><button class="surprise-button" :disabled="locked" @click="surpriseRound"><span>🎲</span><span><strong>Surprise me!</strong><small>A five-question mystery mission</small></span><ArrowRight :size="19" /></button><ExplorerProgress :progress="progress" :name="name" :sync-state="syncState" @stickers="showStickers = true" /></div>
           <section class="practice-workspace" aria-labelledby="worksheet-title">
             <div v-if="result" class="celebration-confetti" aria-hidden="true"><span v-for="index in 12" :key="`${roundNumber}-${index}`" :style="{ '--i': index }">{{ ['✦','●','★','◆'][index % 4] }}</span></div><div v-if="result" id="round-result" class="round-result" tabindex="-1" aria-live="polite"><span class="result-star" aria-hidden="true">{{ result.percent === 100 ? '🌟' : '⭐' }}</span><div class="result-copy"><span class="eyebrow">GIVE YOURSELF A HIGH FIVE</span><h2>{{ message }}</h2><div class="earned-round-stars" :aria-label="`${starsFor(result)} stars earned`"><span v-for="star in 3" :key="star" :class="{ earned: star <= starsFor(result) }" aria-hidden="true">★</span><b>+{{ starsFor(result) }} {{ starsFor(result) === 1 ? 'star' : 'stars' }}!</b></div><p>You found {{ result.right }} of {{ result.total }} missing numbers in {{ formatDuration(result.durationMs) }}.</p><small v-if="saveState === 'saving'" class="save-note"><CloudUpload :size="14" />Saving your star…</small><small v-else-if="saveState === 'saved'" class="save-note"><CheckCircle2 :size="14" />Your result is on the star board!</small><div v-else-if="saveState === 'error'" class="save-error"><span>{{ saveError }}</span><button @click="save">Try saving again</button></div></div><div v-if="newBadges.length" class="new-badges"><span v-for="badge in newBadges" :key="badge.id">{{ badge.emoji }} New sticker: {{ badge.name }}</span></div><div class="score-orbit"><strong>{{ result.percent }}<span>%</span></strong><small>Brilliant effort!</small></div></div>
             <div class="worksheet-card">
