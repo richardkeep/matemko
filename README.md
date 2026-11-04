@@ -14,7 +14,8 @@ Playful maths practice for young explorers, built with Vue 3 and Vite.
 - Earn 1–3 stars per completed round, follow a five-star daily trail, collect six achievement stickers, and build a practice streak.
 - Surprise missions create a random five-question adventure.
 - Rewards and nickname progress are saved on the current browser/device. They do not sync between devices. All completed rounds earn a star, including rounds with mistakes.
-- Nicknames and checked scores are public on the shared star board; use a nickname rather than a full name.
+- **My rounds** lists the learner's last 50 rounds, each with the sums tried and the right answers, including rounds that never made the star board.
+- Account names and checked scores are public on the shared star board.
 - Existing shared attempts stay in Cloudflare D1. Connection failures offer a save retry.
 - Print up to 30 questions per A4 page. Reduced-motion preferences are respected.
 
@@ -32,7 +33,7 @@ npm test       # maths boundaries, scoring, rewards, dates and persistence
 npm run build # production static assets in dist/
 ```
 
-`src/App.vue` and `src/components/` contain the interface; `src/composables/useWorksheet.js` owns each practice attempt; `src/lib/` contains the maths and reward logic. `src/worker.js` retains the shared-attempt API and `migrations/` retains the existing database schema.
+`src/App.vue` and `src/components/` contain the interface; `src/composables/useWorksheet.js` owns each practice attempt; `src/lib/` contains the maths, reward and auth logic. `src/worker.js` routes the API and `migrations/` holds the database schema.
 
 ## Deployment
 
@@ -58,6 +59,6 @@ Accounts live in the existing D1 database. Passwords are salted with cryptograph
 
 Sticker progress is device-local and scoped to account ID, so two signed-in accounts on the same browser do not share progress. The account name is used automatically, with no separate explorer-name field. Existing pre-account local progress is left untouched but is not automatically claimed by a new account. Cloud progress sync, email verification and password recovery are not included in this initial authentication flow.
 
-Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply matemko --remote`. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
+Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply matemko --remote`. Migrations from `0004` onwards were added after the original release. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
 
-`npm test` includes isolated SQLite-backed auth integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling and authenticated score ownership. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.
+`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership and my rounds. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.

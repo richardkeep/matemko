@@ -1,11 +1,14 @@
 import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
 import { cleanProblems, isCorrect } from './lib/worksheet.js';
-// Serves the Vue build from ./dist and a small shared attempts API backed by D1.
-//   GET  /api/attempts  -> top attempts, best first
-//   POST /api/attempts  -> record an attempt
+// Serves the Vue build from ./dist and a small API backed by D1.
+//   GET  /api/attempts       -> top attempts, best first (sums only for your own rounds)
+//   POST /api/attempts       -> record an attempt
+//   GET  /api/attempts/mine  -> your own most recent rounds, with their sums
+//   /api/auth/*              -> accounts (see lib/auth.js)
 
 const OPS = ['+', '−', '×', '÷'];
 const TOP_LIMIT = 100;
+const MINE_LIMIT = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const json = (body, status = 200, headers = {}) =>
@@ -17,7 +20,7 @@ const json = (body, status = 200, headers = {}) =>
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 
 // Returns a clean attempt, or null when the payload is not acceptable
-function parseAttempt(body) {
+export function parseAttempt(body) {
   if (!body || typeof body !== 'object') return null;
   const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ') : '';
   if (name.length < 1 || name.length > 80) return null;
@@ -45,27 +48,35 @@ function parseAttempt(body) {
   };
 }
 
+const parseProblems = text => { try { return text ? JSON.parse(text) : null; } catch { return null; } };
+const COLUMNS = 'id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems';
+const roundJson = (r, withProblems) => ({
+  id: r.id,
+  name: r.name,
+  startedAt: r.started_at,
+  endedAt: r.ended_at,
+  ops: [...r.ops],
+  max: r.max_result,
+  right: r.correct,
+  total: r.total,
+  country: r.country,
+  problems: withProblems ? parseProblems(r.problems) : null,
+});
+
 // Everyone sees the scores; a round's sums are only returned to the account that played it
 async function listAttempts(env, user) {
   const { results } = await env.DB.prepare(
-    `SELECT id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems
+    `SELECT ${COLUMNS}
        FROM attempts
       ORDER BY CAST(correct AS REAL) / total DESC, correct DESC, ended_at - started_at ASC, id DESC
       LIMIT ?`
   ).bind(TOP_LIMIT).all();
-  return json(results.map(r => ({
-    id: r.id,
-    name: r.name,
-    startedAt: r.started_at,
-    endedAt: r.ended_at,
-    ops: [...r.ops],
-    max: r.max_result,
-    right: r.correct,
-    total: r.total,
-    country: r.country,
-    mine: r.user_id === user.id,
-    problems: r.user_id === user.id && r.problems ? JSON.parse(r.problems) : null,
-  })));
+  return json(results.map(r => ({ ...roundJson(r, r.user_id === user.id), mine: r.user_id === user.id })));
+}
+
+async function roundsFor(env, userId, limit = MINE_LIMIT) {
+  const { results } = await env.DB.prepare(`SELECT ${COLUMNS} FROM attempts WHERE user_id = ? ORDER BY id DESC LIMIT ?`).bind(userId, limit).all();
+  return results.map(r => roundJson(r, true));
 }
 
 async function createAttempt(request, env, user) {
@@ -87,6 +98,19 @@ async function createAttempt(request, env, user) {
   return json({ ok: true }, 201);
 }
 
+async function apiRoute(request, env, url) {
+  const path = url.pathname;
+  const user = await currentUser(request, env);
+  if (!user) return authJson({ error: 'Please sign in to continue.' }, 401);
+  if (path === '/api/attempts') {
+    if (request.method === 'GET') return listAttempts(env, user);
+    if (request.method === 'POST') { sameOrigin(request); return createAttempt(request, env, user); }
+    return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
+  }
+  if (request.method === 'GET' && path === '/api/attempts/mine') return json(await roundsFor(env, user.id));
+  return authJson({ error: 'Not found.' }, 404);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -96,14 +120,7 @@ export default {
     }
     try {
       if (url.pathname.startsWith('/api/auth/')) return await authRoute(request, env, url.pathname);
-      if (url.pathname === '/api/attempts') {
-        const user = await currentUser(request, env);
-        if (!user) return authJson({ error: 'Please sign in to continue.' }, 401);
-        if (request.method === 'GET') return await listAttempts(env, user);
-        if (request.method === 'POST') { sameOrigin(request); return await createAttempt(request, env, user); }
-        return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, POST' });
-      }
-      if (url.pathname.startsWith('/api/')) return authJson({ error: 'Not found.' }, 404);
+      if (url.pathname.startsWith('/api/')) return await apiRoute(request, env, url);
       return env.ASSETS.fetch(request);
     } catch (error) {
       if (error instanceof HttpError) return authJson({ error: error.message }, error.status, error.status === 429 ? { 'Retry-After': '900' } : {});

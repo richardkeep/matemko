@@ -79,3 +79,19 @@ test('a round\'s sums are saved, must match the score, and are only returned to 
     assert.equal(theirs.mine, false); assert.equal(theirs.problems, null); assert.equal(theirs.right, 1)
   } finally { env.sqlite.close() }
 })
+
+test('my rounds include every round I played, with sums, and only mine', async () => {
+  const env = database()
+  try {
+    const me = cookie(await call(env, '/api/auth/register', fields))
+    const other = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Other', email: 'other@example.test' }))
+    const p = (a, answer) => ({ a, op: '+', b: 1, c: a + 1, hide: 'c', answer })
+    const round = problems => ({ total: problems.length, right: problems.filter(x => x.answer === String(x.c)).length, max: 20, ops: ['+'], durationMs: 1000, problems })
+    assert.equal((await call(env, '/api/attempts', round([p(1, '0'), p(2, '')]), me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', round([p(1, '2'), p(5, '6')]), me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', round([p(9, '0')]), other)).status, 201)
+    const mine = await (await call(env, '/api/attempts/mine', undefined, me)).json()
+    assert.equal(mine.length, 2); assert.equal(mine[0].problems[1].a, 5)
+    assert.equal((await call(env, '/api/attempts/mine')).status, 401)
+  } finally { env.sqlite.close() }
+})

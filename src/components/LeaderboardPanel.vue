@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { Trophy, RefreshCw, Search, Medal, Globe2, Timer, ChevronDown } from 'lucide-vue-next'
+import { Trophy, RefreshCw, Search, Medal, Globe2, Timer, ChevronDown, History } from 'lucide-vue-next'
 import SumsList from './SumsList.vue'
 import { countryLabel, formatDuration } from '../lib/worksheet'
+const emit = defineEmits(['history'])
 const attempts = ref([]); const loading = ref(false); const error = ref(''); const search = ref(''); const expanded = ref(false)
 const filtered = computed(() => attempts.value.map((attempt, index) => ({ ...attempt, rank: index + 1 })).filter(attempt => attempt.name.toLowerCase().includes(search.value.toLowerCase())))
 const visible = computed(() => expanded.value || search.value ? filtered.value : filtered.value.slice(0, 10))
@@ -30,6 +31,7 @@ const finishedAt = value => new Date(value).toLocaleString(undefined, { month: '
       <div v-else class="board-table-wrap"><table class="board-table"><thead><tr><th>Place</th><th>Explorer</th><th>Adventure</th><th>Score</th><th><span class="sr-only">Time</span><Timer :size="16" /></th></tr></thead><tbody><template v-for="attempt in visible" :key="attempt.id ?? `${attempt.rank}-${attempt.endedAt}-${attempt.name}`"><tr><td><span :class="['rank', `rank-${attempt.rank}`]">{{ attempt.rank <= 3 ? ['🥇', '🥈', '🥉'][attempt.rank - 1] : String(attempt.rank).padStart(2, '0') }}</span></td><td><div class="explorer-cell"><span class="explorer-avatar" :class="`avatar-${attempt.rank % 4}`">{{ attempt.name.charAt(0).toUpperCase() }}</span><div><strong>{{ attempt.name }}</strong><small><span>{{ countryLabel(attempt.country).flag }}</span> {{ countryLabel(attempt.country).name }} · {{ finishedAt(attempt.endedAt) }}</small><button v-if="attempt.mine" class="sums-toggle" :aria-expanded="openId === attempt.id" @click="toggleSums(attempt.id)">{{ openId === attempt.id ? 'Hide my sums' : 'See my sums' }} <ChevronDown :size="15" :class="{ flipped: openId === attempt.id }" /></button></div></div></td><td><span class="board-ops">{{ attempt.ops.join(' ') }}</span><small class="adventure-limit">Numbers to {{ attempt.max }}</small></td><td><strong class="board-percentage">{{ Math.round(attempt.right / attempt.total * 100) }}<small>%</small></strong><span class="board-score">{{ attempt.right }} / {{ attempt.total }} correct</span></td><td class="time-cell">{{ formatDuration(attempt.endedAt - attempt.startedAt) }}</td></tr><tr v-if="attempt.mine && openId === attempt.id" class="sums-row"><td colspan="5"><SumsList :problems="attempt.problems" /></td></tr></template></tbody></table></div>
       <button v-if="!search && filtered.length > 10" class="show-all-button" @click="expanded = !expanded">{{ expanded ? 'Show top 10' : `See all ${attempts.length} explorers` }} <ChevronDown :size="17" :class="{ flipped: expanded }" /></button>
     </div>
+    <button class="board-history-link" @click="emit('history')"><History :size="17" />Not on the board? See all your rounds and sums</button>
     <p class="board-kind-note">✦ Every explorer learns at their own pace. Trying is what makes you a star.</p>
   </section>
 </template>
