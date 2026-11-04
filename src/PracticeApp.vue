@@ -1,6 +1,6 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History, Users, MailWarning } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History, Users, MailWarning, Radio } from 'lucide-vue-next'
 import AppDialog from './components/AppDialog.vue'
 import MathMascot from './components/MathMascot.vue'
 import PracticeSetup from './components/PracticeSetup.vue'
@@ -9,6 +9,7 @@ import LeaderboardPanel from './components/LeaderboardPanel.vue'
 import ExplorerProgress from './components/ExplorerProgress.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import FamilyPanel from './components/FamilyPanel.vue'
+import AdminPanel from './components/AdminPanel.vue'
 import { BADGES, mergeProgress, readProgress, recordProgress, storeProgress, starsFor } from './lib/progress'
 import { useWorksheet } from './composables/useWorksheet'
 import { formatDuration, modeLabel } from './lib/worksheet'
@@ -76,7 +77,19 @@ async function resendVerification() {
     verifyState.value = r.ok && data.sent ? 'sent' : r.status === 429 ? 'wait' : 'failed'
   } catch { verifyState.value = 'failed' }
 }
-const view = ref('practice'); const showSkipped = ref(false); const showHelp = ref(false); const roundNumber = ref(1)
+const view = ref('practice')
+// Presence: lets platform admins see who is online. Sent about once a minute and on changes,
+// only while this tab is visible. The server keeps just the latest check-in per learner.
+async function heartbeat() {
+  if (document.visibilityState !== 'visible') return
+  try { await fetch('/api/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activity: view.value, inRound: inProgress.value }), keepalive: true, signal: AbortSignal.timeout(10000) }) } catch { /* Presence is best effort. */ }
+}
+const presenceTimer = setInterval(heartbeat, 60000)
+document.addEventListener('visibilitychange', heartbeat)
+onMounted(heartbeat)
+watch([view, inProgress], heartbeat)
+onBeforeUnmount(() => { clearInterval(presenceTimer); document.removeEventListener('visibilitychange', heartbeat) })
+const showSkipped = ref(false); const showHelp = ref(false); const roundNumber = ref(1)
 const unanswered = computed(() => equations.value.length - answered.value)
 const worksheetPages = computed(() => Array.from({ length: Math.ceil(equations.value.length / 30) }, (_, index) => ({ start: index * 30, equations: equations.value.slice(index * 30, index * 30 + 30) })))
 async function newRound() {
@@ -102,7 +115,7 @@ const message = computed(() => !result.value ? '' : timedOut.value ? "Time's up!
   <div class="app-shell">
     <header class="site-header">
       <a class="brand" href="#" @click.prevent="view = 'practice'" aria-label="Easy Math home"><span class="brand-mark" aria-hidden="true">✦</span><span>Easy Math<span class="brand-dot">.</span></span></a>
-      <nav class="main-nav" aria-label="Main navigation"><button :class="{ active: view === 'practice' }" @click="view = 'practice'" :aria-current="view === 'practice' ? 'page' : undefined"><Sparkles :size="18" /><span>Let's play</span></button><button :class="{ active: view === 'history' }" @click="view = 'history'" :aria-current="view === 'history' ? 'page' : undefined"><History :size="18" /><span>My rounds</span></button><button :class="{ active: view === 'leaderboard' }" @click="view = 'leaderboard'" :aria-current="view === 'leaderboard' ? 'page' : undefined"><Trophy :size="18" /><span>Star board</span></button><button :class="{ active: view === 'family' }" @click="view = 'family'" :aria-current="view === 'family' ? 'page' : undefined"><Users :size="18" /><span>Family</span></button></nav>
+      <nav class="main-nav" aria-label="Main navigation"><button :class="{ active: view === 'practice' }" @click="view = 'practice'" :aria-current="view === 'practice' ? 'page' : undefined"><Sparkles :size="18" /><span>Let's play</span></button><button :class="{ active: view === 'history' }" @click="view = 'history'" :aria-current="view === 'history' ? 'page' : undefined"><History :size="18" /><span>My rounds</span></button><button :class="{ active: view === 'leaderboard' }" @click="view = 'leaderboard'" :aria-current="view === 'leaderboard' ? 'page' : undefined"><Trophy :size="18" /><span>Star board</span></button><button :class="{ active: view === 'family' }" @click="view = 'family'" :aria-current="view === 'family' ? 'page' : undefined"><Users :size="18" /><span>Family</span></button><button v-if="user.isAdmin" :class="{ active: view === 'admin' }" @click="view = 'admin'" :aria-current="view === 'admin' ? 'page' : undefined"><Radio :size="18" /><span>Admin</span></button></nav>
       <button class="account-signout" :disabled="signingOut" @click="signOut">{{ signingOut ? 'Signing out…' : 'Sign out' }}</button>
       <button class="help-button" @click="showHelp = true" aria-label="How to play"><CircleHelp :size="20" /><span>How to play</span></button>
     </header>
@@ -131,6 +144,7 @@ const message = computed(() => !result.value ? '' : timedOut.value ? "Time's up!
       </template>
       <HistoryPanel v-else-if="view === 'history'" @play="view = 'practice'" />
       <FamilyPanel v-else-if="view === 'family'" />
+      <AdminPanel v-else-if="view === 'admin' && user.isAdmin" />
       <LeaderboardPanel v-else @history="view = 'history'" />
     </main>
     <footer class="site-footer"><span class="footer-brand">Easy Math<span>✦</span><small>Little sums. Lovely possibilities.</small></span><span>Made for curious little minds <Heart :size="13" /></span><a href="https://github.com/cannonsh/matemko" target="_blank" rel="noopener noreferrer">Inspired by Lovro Papež <span>↗</span></a></footer>

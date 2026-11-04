@@ -1,4 +1,4 @@
-import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
+import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody, isAdmin } from './lib/auth.js';
 import { cleanProblems, isCorrect, trickySums, MODE_PATTERN, TIME_LIMITS } from './lib/worksheet.js';
 import { mergeProgress } from './lib/progress.js';
 import { familyRoute, readProgressRow } from './lib/family.js';
@@ -10,12 +10,16 @@ import { familyRoute, readProgressRow } from './lib/family.js';
 //   GET  /api/progress       -> your stars, stickers and streak
 //   POST /api/progress       -> merge this device's progress into your account
 //   /api/family/*            -> grown-ups following learners (see lib/family.js)
+//   POST /api/presence       -> heartbeat: "I'm here, on this page"
+//   GET  /api/admin/online   -> who is online and activity counts (platform admins only)
 //   /api/auth/*              -> accounts (see lib/auth.js)
 
 const OPS = ['+', '−', '×', '÷'];
 const TOP_LIMIT = 100;
 const MINE_LIMIT = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ONLINE_MS = 2 * 60 * 1000; // heartbeats arrive about once a minute
+const ACTIVITIES = ['practice', 'history', 'leaderboard', 'family', 'admin'];
 
 const json = (body, status = 200, headers = {}) =>
   new Response(JSON.stringify(body), {
@@ -130,6 +134,51 @@ async function progressRoute(request, env, user) {
   return json({ progress: merged });
 }
 
+const countryOf = request => {
+  // Country comes from Cloudflare's IP lookup; XX = unknown, T1 = Tor
+  const cc = request.cf?.country;
+  return typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
+};
+
+async function recordPresence(request, env, user) {
+  const body = await readBody(request);
+  if (!ACTIVITIES.includes(body.activity) || typeof body.inRound !== 'boolean') return json({ error: 'Invalid presence' }, 400);
+  await env.DB.prepare(
+    `INSERT INTO presence (user_id, last_seen, activity, in_round, country) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET last_seen = excluded.last_seen, activity = excluded.activity, in_round = excluded.in_round, country = excluded.country`
+  ).bind(user.id, Date.now(), body.activity, body.inRound ? 1 : 0, countryOf(request)).run();
+  return json({ ok: true });
+}
+
+// Learners online now, plus simple activity counts. Email and birthday are never included.
+async function adminOnline(env) {
+  const now = Date.now();
+  const { results } = await env.DB.prepare(
+    `SELECT u.name, p.last_seen, p.activity, p.in_round, p.country,
+            (SELECT count(*) FROM attempts a WHERE a.user_id = u.id AND a.ended_at > ?) AS rounds_today,
+            (SELECT count(*) FROM attempts a WHERE a.user_id = u.id) AS total_rounds,
+            (SELECT correct FROM attempts a WHERE a.user_id = u.id ORDER BY ${RANKING} LIMIT 1) AS best_right,
+            (SELECT total FROM attempts a WHERE a.user_id = u.id ORDER BY ${RANKING} LIMIT 1) AS best_total
+       FROM presence p JOIN auth_users u ON u.id = p.user_id
+      WHERE p.last_seen > ?
+      ORDER BY p.in_round DESC, p.last_seen DESC`
+  ).bind(now - DAY_MS, now - ONLINE_MS).all();
+  const counts = await env.DB.prepare(
+    `SELECT (SELECT count(*) FROM presence WHERE last_seen > ?) AS active_today,
+            (SELECT count(*) FROM presence WHERE last_seen > ?) AS active_week,
+            (SELECT count(*) FROM auth_users) AS learners,
+            (SELECT count(*) FROM attempts WHERE ended_at > ?) AS rounds_today`
+  ).bind(now - DAY_MS, now - 7 * DAY_MS, now - DAY_MS).first();
+  return json({
+    now,
+    onlineWindowMs: ONLINE_MS,
+    online: results.map(r => ({ name: r.name, lastSeen: r.last_seen, activity: r.activity, inRound: Boolean(r.in_round), country: r.country, roundsToday: r.rounds_today, totalRounds: r.total_rounds,
+      // Best round by the star board's ranking; null before their first round
+      bestScore: r.best_total ? { right: r.best_right, total: r.best_total, percent: Math.round(r.best_right / r.best_total * 100) } : null })),
+    counts: { online: results.length, activeToday: counts.active_today, activeWeek: counts.active_week, learners: counts.learners, roundsToday: counts.rounds_today },
+  });
+}
+
 async function createAttempt(request, env, user) {
   let body;
   try {
@@ -139,9 +188,7 @@ async function createAttempt(request, env, user) {
   }
   const a = parseAttempt({ ...body, name: user.name });
   if (!a) return json({ error: 'Invalid attempt' }, 400);
-  // Country comes from Cloudflare's IP lookup; XX = unknown, T1 = Tor
-  const cc = request.cf?.country;
-  const country = typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
+  const country = countryOf(request);
   await env.DB.prepare(
     `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode, time_limit_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -161,6 +208,9 @@ async function apiRoute(request, env, url) {
   if (request.method === 'GET' && path === '/api/attempts/mine') return json(await roundsFor(env, user.id));
   if (request.method === 'GET' && path === '/api/mistakes') return listMistakes(env, user);
   if (path === '/api/progress') return progressRoute(request, env, user);
+  if (path === '/api/presence' && request.method === 'POST') { sameOrigin(request); return recordPresence(request, env, user); }
+  // Not found, rather than forbidden, so the admin API is invisible to everyone else
+  if (path === '/api/admin/online' && request.method === 'GET') return isAdmin(env, user) ? adminOnline(env) : authJson({ error: 'Not found.' }, 404);
   if (path === '/api/family' || path.startsWith('/api/family/')) {
     if (request.method !== 'GET') sameOrigin(request);
     return familyRoute(request, env, path, user, roundsFor);

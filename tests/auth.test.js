@@ -164,11 +164,14 @@ test('round modes and timers are validated against the sums', async () => {
     assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-99' }, me)).status, 400)
     assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 45000 }, me)).status, 400)
     assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 60000, durationMs: 90000 }, me)).status, 400)
+    for (const minutes of [4, 5, 10, 15, 20, 30]) assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: minutes * 60000, durationMs: minutes * 60000 }, me)).status, 201, `${minutes} minutes`)
+    for (const minutes of [6, 25, 31, 60]) assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: minutes * 60000 }, me)).status, 400, `${minutes} minutes`)
     const bonds = [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }, { a: 10, op: '−', b: 3, c: 7, hide: 'c', answer: '' }]
     assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 10, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-10' }, me)).status, 201)
     assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 20, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-20' }, me)).status, 400)
     const mine = await (await call(env, '/api/attempts/mine', undefined, me)).json()
-    assert.deepEqual(mine.map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
+    assert.deepEqual(mine.map(r => [r.mode, r.timeLimitMs]).filter(r => r[1] !== null && r[1] > 60000).length, 6)
+    assert.deepEqual(mine.filter(r => r.timeLimitMs === null || r.timeLimitMs === 60000).map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
     const board = await (await call(env, '/api/attempts', undefined, me)).json()
     assert.deepEqual(board.map(r => [r.mode, r.timeLimitMs]), [['table-7', 60000]])
   } finally { env.sqlite.close() }
@@ -231,5 +234,43 @@ test('the star board shows only each explorer\'s best round', async () => {
     assert.deepEqual(board.map(r => [r.name, r.right, r.total, r.endedAt - r.startedAt]), [['Old Timer', 5, 5, 1000], ['Ada', 9, 10, 5000], ['Ben', 8, 10, 2000]])
     assert.deepEqual(board.map(r => r.mine), [false, true, false])
     assert.equal((await (await call(env, '/api/attempts/mine', undefined, ada)).json()).length, 4)
+  } finally { env.sqlite.close() }
+})
+
+test('only a confirmed platform admin can see who is online, and never their private details', async () => {
+  const env = { ...database(), ADMIN_EMAILS: ' Admin@Example.test , other-admin@example.test' }
+  const sent = outbox(env)
+  try {
+    const admin = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Admin', email: 'admin@example.test' }))
+    const kid = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Kid', email: 'kid@example.test' }))
+    const idle = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Idle', email: 'idle@example.test' }))
+    // An unconfirmed admin email is not enough
+    assert.equal((await (await call(env, '/api/auth/me', undefined, admin)).json()).user.isAdmin, false)
+    assert.equal((await call(env, '/api/admin/online', undefined, admin)).status, 404)
+    await call(env, '/api/auth/verify', { token: tokenIn(sent.find(m => m.to === 'admin@example.test'), 'verify') })
+    assert.equal((await (await call(env, '/api/auth/me', undefined, admin)).json()).user.isAdmin, true)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, kid)).json()).user.isAdmin, false)
+    // Heartbeats are validated and same-origin only
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: true }, kid)).status, 200)
+    assert.equal((await call(env, '/api/presence', { activity: 'hacking', inRound: true }, kid)).status, 400)
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: 'yes' }, kid)).status, 400)
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: false }, kid, 'https://evil.example')).status, 403)
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: false })).status, 401)
+    await call(env, '/api/presence', { activity: 'history', inRound: false }, idle)
+    await call(env, '/api/presence', { activity: 'admin', inRound: false }, admin)
+    env.sqlite.exec(`UPDATE presence SET last_seen = ${Date.now() - 10 * 60 * 1000} WHERE activity = 'history'`)
+    for (const [right, total] of [[2, 5], [4, 5], [3, 5]]) await call(env, '/api/attempts', { total, right, max: 10, ops: ['+'], durationMs: 1000 }, kid)
+    // One of the three rounds is older than a day: it counts in total rounds but not today
+    env.sqlite.exec(`UPDATE attempts SET ended_at = ${Date.now() - 3 * 86400000} WHERE correct = 2`)
+    const view = await (await call(env, '/api/admin/online', undefined, admin)).json()
+    assert.deepEqual(view.online.map(p => [p.name, p.activity, p.inRound, p.roundsToday, p.totalRounds, p.bestScore]), [['Kid', 'practice', true, 2, 3, { right: 4, total: 5, percent: 80 }], ['Admin', 'admin', false, 0, 0, null]])
+    assert.deepEqual(view.online.find(p => p.name === 'Kid').roundsToday, 2)
+    assert.deepEqual(view.counts, { online: 2, activeToday: 3, activeWeek: 3, learners: 3, roundsToday: 2 })
+    assert.equal(/@|dateOfBirth|2016-05-14/.test(JSON.stringify(view)), false)
+    // Everyone else gets "not found"
+    assert.equal((await call(env, '/api/admin/online', undefined, kid)).status, 404)
+    assert.equal((await call(env, '/api/admin/online')).status, 401)
+    assert.equal((await call(env, '/api/admin/online', undefined, admin, undefined)).status, 200)
+    assert.equal((await call({ ...env, ADMIN_EMAILS: undefined }, '/api/admin/online', undefined, admin)).status, 404)
   } finally { env.sqlite.close() }
 })

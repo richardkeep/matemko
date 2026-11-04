@@ -52,7 +52,16 @@ export async function readBody(request) {
 export function sameOrigin(request) {
   if (request.headers.get('origin') !== new URL(request.url).origin || request.headers.get('sec-fetch-site') === 'cross-site') throw new HttpError(403, 'Please submit this form from Easy Math.')
 }
-const publicUser = row => ({ id: row.id, name: row.name, email: row.email, dateOfBirth: row.date_of_birth, emailVerified: Boolean(row.email_verified_at) })
+// Platform admins are listed by email in the ADMIN_EMAILS variable (comma separated) and must
+// have confirmed that email, so an unconfirmed sign-up can never gain admin access.
+export function isAdmin(env, user) {
+  if (!user?.emailVerified || typeof env?.ADMIN_EMAILS !== 'string') return false
+  return env.ADMIN_EMAILS.split(',').map(email => email.trim().toLowerCase()).filter(Boolean).includes(user.email.toLowerCase())
+}
+const publicUser = (row, env) => {
+  const user = { id: row.id, name: row.name, email: row.email, dateOfBirth: row.date_of_birth, emailVerified: Boolean(row.email_verified_at) }
+  return { ...user, isAdmin: isAdmin(env, user) }
+}
 function cookieName(request) { return new URL(request.url).protocol === 'https:' ? COOKIE : 'easymath_local_session' }
 function cookieValue(request, value, maxAge = SESSION_SECONDS) {
   return `${cookieName(request)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`
@@ -64,7 +73,7 @@ async function sessionHash(request) {
 export async function currentUser(request, env) {
   const hash = await sessionHash(request); if (!hash) return null
   const row = await env.DB.prepare('SELECT u.id, u.name, u.email, u.date_of_birth, u.email_verified_at FROM auth_sessions s JOIN auth_users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?').bind(hash, Date.now()).first()
-  return row ? publicUser(row) : null
+  return row ? publicUser(row, env) : null
 }
 export async function limit(env, key, maximum, period) {
   const now = Date.now(); const keyHash = await digest(key)
@@ -145,7 +154,7 @@ export async function authRoute(request, env, path, ctx) {
       env.DB.prepare('DELETE FROM auth_tokens WHERE user_id = ? AND purpose = ?').bind(userId, 'reset'),
     ])
     const row = await env.DB.prepare('SELECT * FROM auth_users WHERE id = ?').bind(userId).first()
-    return authJson({ user: publicUser(row) }, 200, { 'Set-Cookie': await startSession(request, env, userId) })
+    return authJson({ user: publicUser(row, env) }, 200, { 'Set-Cookie': await startSession(request, env, userId) })
   }
   const email = normalizeEmail(body.email)
   if (action === 'forgot') {
@@ -163,7 +172,7 @@ export async function authRoute(request, env, path, ctx) {
     row = { id: crypto.randomUUID(), name: data.name, email: data.email, date_of_birth: data.dob, email_verified_at: null }
     try { await env.DB.prepare('INSERT INTO auth_users (id, name, email, date_of_birth, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(row.id, row.name, row.email, row.date_of_birth, password.hash, password.salt, now).run() }
     catch (error) { if (/UNIQUE constraint failed.*email/i.test(error.message)) throw new HttpError(409, 'Unable to create this account. Try signing in or use a different email.'); throw error }
-    await background(ctx, sendVerification(request, env, publicUser(row)))
+    await background(ctx, sendVerification(request, env, publicUser(row, env)))
   } else {
     if (typeof body.password !== 'string' || body.password.length < 1 || body.password.length > 128) throw new HttpError(400, 'Enter your email and password.')
     row = await env.DB.prepare('SELECT * FROM auth_users WHERE email = ?').bind(email).first()
@@ -171,5 +180,5 @@ export async function authRoute(request, env, path, ctx) {
     const valid = await verifyPassword(body.password, row?.password_salt || '0'.repeat(32), row?.password_hash || '0'.repeat(64))
     if (!row || !valid) throw new HttpError(401, 'Email or password is incorrect.')
   }
-  return authJson({ user: publicUser(row) }, action === 'register' ? 201 : 200, { 'Set-Cookie': await startSession(request, env, row.id) })
+  return authJson({ user: publicUser(row, env) }, action === 'register' ? 201 : 200, { 'Set-Cookie': await startSession(request, env, row.id) })
 }
