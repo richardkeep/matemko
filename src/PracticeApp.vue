@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History } from 'lucide-vue-next'
+import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History, MailWarning } from 'lucide-vue-next'
 import AppDialog from './components/AppDialog.vue'
 import MathMascot from './components/MathMascot.vue'
 import PracticeSetup from './components/PracticeSetup.vue'
@@ -11,8 +11,8 @@ import HistoryPanel from './components/HistoryPanel.vue'
 import { BADGES, readProgress, recordProgress, storeProgress, starsFor } from './lib/progress'
 import { useWorksheet } from './composables/useWorksheet'
 import { formatDuration } from './lib/worksheet'
-const props = defineProps({ user: { type: Object, required: true } })
-const emit = defineEmits(['signed-out'])
+const props = defineProps({ user: { type: Object, required: true }, notice: { type: Object, default: null } })
+const emit = defineEmits(['signed-out', 'user', 'dismiss-notice'])
 const signingOut = ref(false); const signOutError = ref('')
 async function signOut() {
   if (signingOut.value || (inProgress.value && !window.confirm('Leave this unfinished adventure and sign out?'))) return
@@ -32,6 +32,17 @@ watch(result, value => {
   storeProgress('account:' + props.user.id, progress.value)
 })
 watch([max, count, ops], () => { if (!locked.value) generate() })
+// Verification is a gentle nudge, not a gate, so existing explorers can keep playing
+const verifyState = ref('')
+async function resendVerification() {
+  verifyState.value = 'sending'
+  try {
+    const r = await fetch('/api/auth/resend-verification', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(15000) })
+    const data = await r.json().catch(() => ({}))
+    if (data.verified) { emit('user', { ...props.user, emailVerified: true }); return }
+    verifyState.value = r.ok && data.sent ? 'sent' : r.status === 429 ? 'wait' : 'failed'
+  } catch { verifyState.value = 'failed' }
+}
 const view = ref('practice'); const showSkipped = ref(false); const showHelp = ref(false); const roundNumber = ref(1)
 const unanswered = computed(() => equations.value.length - answered.value)
 const worksheetPages = computed(() => Array.from({ length: Math.ceil(equations.value.length / 30) }, (_, index) => ({ start: index * 30, equations: equations.value.slice(index * 30, index * 30 + 30) })))
@@ -62,6 +73,8 @@ const message = computed(() => !result.value ? '' : result.value.percent === 100
     </header>
     <main class="main-content">
       <p v-if="signOutError" class="auth-error" role="alert">{{ signOutError }}</p>
+      <p v-if="notice" :class="['page-notice', notice.kind === 'success' ? 'auth-success' : 'auth-error']" role="status"><span>{{ notice.text }}</span><button class="icon-button" aria-label="Dismiss" @click="emit('dismiss-notice')"><X :size="16" /></button></p>
+      <div v-if="!user.emailVerified" class="verify-banner" role="status"><MailWarning :size="20" /><p><strong>Please confirm your email.</strong> We sent a link to {{ user.email }} so we can help if you forget your password.<template v-if="verifyState === 'sent'"> A new link is on its way!</template><template v-else-if="verifyState === 'wait'"> We've sent a few already — check your spam folder, or try again later.</template><template v-else-if="verifyState === 'failed'"> We couldn't send it just now. Please try again later.</template></p><button v-if="verifyState !== 'sent'" class="button secondary" :disabled="verifyState === 'sending'" @click="resendVerification">{{ verifyState === 'sending' ? 'Sending…' : 'Send it again' }}</button></div>
       <template v-if="view === 'practice'">
         <section class="welcome-banner"><div class="welcome-copy"><span class="eyebrow"><span class="tiny-star">✦</span> BIG FUN. LITTLE SUMS.</span><h1>Ready, maths<br>explorer<span class="heading-dot">?</span></h1><p>Find the missing numbers. Collect little wins.<br class="desktop-break"> Watch your confidence grow.</p></div><MathMascot /><div class="welcome-note"><span class="note-star">✦</span><strong>You've got this!</strong><span>One little sum at a time.</span></div></section>
         <div class="practice-layout">

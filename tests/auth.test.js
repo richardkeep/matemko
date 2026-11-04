@@ -83,10 +83,39 @@ test('a round\'s sums are saved, must match the score, and are only returned to 
 const outbox = env => { const sent = []; env.MAILER = { send: message => { sent.push(message) } }; return sent }
 const tokenIn = (message, kind) => new RegExp(`#${kind}=([a-f0-9]{64})`).exec(message.text)[1]
 
+test('sign-up sends a single-use verification link that confirms the email', async () => {
+  const env = database(); const sent = outbox(env)
+  try {
+    const r = await call(env, '/api/auth/register', fields); const session = cookie(r)
+    assert.equal((await r.json()).user.emailVerified, false)
+    assert.equal(sent.length, 1); assert.equal(sent[0].to, fields.email); assert.match(sent[0].text, /^.*https:\/\/maths\.example\.test\/#verify=/m)
+    const token = tokenIn(sent[0], 'verify')
+    assert.equal(env.sqlite.prepare('SELECT token_hash FROM auth_tokens').get().token_hash === token, false)
+    assert.equal((await call(env, '/api/auth/verify', { token: 'f'.repeat(64) })).status, 400)
+    assert.equal((await call(env, '/api/auth/verify', { token })).status, 200)
+    assert.equal((await call(env, '/api/auth/verify', { token })).status, 400)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, session)).json()).user.emailVerified, true)
+    assert.equal((await (await call(env, '/api/auth/resend-verification', {}, session)).json()).verified, true)
+    assert.equal(sent.length, 1)
+  } finally { env.sqlite.close() }
+})
+
+test('verification links can be resent a few times, and an old link stops working', async () => {
+  const env = database(); const sent = outbox(env)
+  try {
+    const session = cookie(await call(env, '/api/auth/register', fields))
+    assert.equal((await call(env, '/api/auth/resend-verification', {})).status, 401)
+    for (let i = 0; i < 3; i++) assert.equal((await (await call(env, '/api/auth/resend-verification', {}, session)).json()).sent, true)
+    assert.equal((await call(env, '/api/auth/resend-verification', {}, session)).status, 429)
+    assert.equal((await call(env, '/api/auth/verify', { token: tokenIn(sent[0], 'verify') })).status, 400)
+    assert.equal((await call(env, '/api/auth/verify', { token: tokenIn(sent.at(-1), 'verify') })).status, 200)
+  } finally { env.sqlite.close() }
+})
+
 test('password reset answers the same for unknown emails, works once, expires and signs out other devices', async () => {
   const env = database(); const sent = outbox(env)
   try {
-    const oldSession = cookie(await call(env, '/api/auth/register', fields))
+    const oldSession = cookie(await call(env, '/api/auth/register', fields)); sent.length = 0
     const unknown = await call(env, '/api/auth/forgot', { email: 'nobody@example.test' })
     const known = await call(env, '/api/auth/forgot', { email: fields.email.toUpperCase() })
     assert.equal(unknown.status, 200); assert.deepEqual(await unknown.json(), await known.json())
@@ -94,7 +123,7 @@ test('password reset answers the same for unknown emails, works once, expires an
     const token = tokenIn(sent[0], 'reset')
     assert.equal((await call(env, '/api/auth/reset', { token, password: 'short' })).status, 400)
     const reset = await call(env, '/api/auth/reset', { token, password: 'A-brand-new-password' })
-    assert.equal(reset.status, 200); const body = await reset.json()
+    assert.equal(reset.status, 200); const body = await reset.json(); assert.equal(body.user.emailVerified, true)
     assert.equal((await (await call(env, '/api/auth/me', undefined, oldSession)).json()).user, null)
     assert.equal((await (await call(env, '/api/auth/me', undefined, cookie(reset))).json()).user.id, body.user.id)
     assert.equal((await call(env, '/api/auth/reset', { token, password: 'Another-new-password' })).status, 400)

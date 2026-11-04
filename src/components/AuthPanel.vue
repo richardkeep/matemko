@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { ArrowLeft, ArrowRight, Eye, EyeOff, LockKeyhole, MailCheck, Sparkles } from 'lucide-vue-next'
 import MathMascot from './MathMascot.vue'
-const props = defineProps({ resetToken: { type: String, default: '' } })
+const props = defineProps({ resetToken: { type: String, default: '' }, notice: { type: Object, default: null } })
 const emit = defineEmits(['signed-in', 'cancel-reset'])
 const mode = ref(props.resetToken ? 'reset' : 'login'); const busy = ref(false); const error = ref(''); const visible = ref(false); const sent = ref(false)
 const name = ref(''); const email = ref(''); const password = ref(''); const dateOfBirth = ref('')
@@ -39,6 +39,7 @@ async function submit() {
       <section class="auth-card" aria-labelledby="auth-title">
         <div v-if="mode === 'login' || mode === 'register'" class="auth-tabs" aria-label="Account options"><button type="button" :class="{ active: !signup }" :disabled="busy" :aria-pressed="!signup" @click="switchMode('login')">Sign in</button><button type="button" :class="{ active: signup }" :disabled="busy" :aria-pressed="signup" @click="switchMode('register')">Create account</button></div>
         <button v-else-if="mode === 'forgot'" type="button" class="auth-back" :disabled="busy" @click="switchMode('login')"><ArrowLeft :size="17" />Back to sign in</button>
+        <p v-if="notice" :class="notice.kind === 'success' ? 'auth-success' : 'auth-error'" role="status">{{ notice.text }}<template v-if="notice.kind === 'success'"> Sign in to keep playing.</template></p>
         <span class="auth-spark" aria-hidden="true">{{ title[0] }}</span><h2 id="auth-title">{{ title[1] }}</h2><p class="auth-subtitle">{{ title[2] }}</p>
         <div v-if="sent" class="auth-sent" role="status"><MailCheck :size="28" /><p><strong>Check your inbox.</strong> If an account uses <b>{{ email }}</b>, a reset link is on its way. It works for one hour.</p><button type="button" class="button secondary" @click="switchMode('login')">Back to sign in</button></div>
         <form v-else @submit.prevent="submit">

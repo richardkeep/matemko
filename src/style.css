@@ -87,7 +87,14 @@
 .sums-missing{margin:4px 0;font-size:14px;color:var(--muted)}
 
 
-/* Password reset */
+/* Notices and email confirmation */
+.auth-success{padding:12px 14px;background:#eef8ea;border:1px solid #bcdcb0;border-radius:10px;color:#2f5d2c;font-size:14px;margin:16px 0 0;line-height:1.5}
+.page-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 18px}
+.page-notice .icon-button{width:30px;height:30px}
+.verify-banner{display:flex;align-items:center;gap:14px;margin:0 0 22px;padding:14px 18px;border:1px solid #efdcb4;border-radius:16px;background:#fff8e8;color:#6b5320}
+.verify-banner>svg{flex-shrink:0;color:#c08a2c}
+.verify-banner p{flex:1;margin:0;font-size:14px;line-height:1.55}
+.verify-banner .button{min-height:40px;padding:8px 14px;flex-shrink:0}
 .auth-back,.auth-link{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:6px 0;font-size:14px;font-weight:650;color:var(--green)}
 .auth-back{margin-bottom:12px}
 .auth-link:hover,.auth-back:hover{text-decoration:underline}
@@ -130,6 +137,8 @@
  .site-header{height:auto}
  .main-nav button{flex-direction:column;gap:3px;padding:8px 4px;font-size:13px}
  .main-nav svg{width:17px;height:17px}
+ .verify-banner{flex-wrap:wrap}
+ .verify-banner .button{width:100%}
  .round-item{padding:14px 16px}
  .round-summary{flex-wrap:wrap;gap:10px 12px}
  .round-summary .sums-toggle{flex-basis:100%;justify-content:flex-start}
@@ -137,4 +146,4 @@
  .history-stats{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:390px){.main-nav button{font-size:12px;padding:8px 2px}}
-@media print{.history-view{display:none!important}}
+@media print{.verify-banner,.page-notice,.history-view{display:none!important}}

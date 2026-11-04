@@ -1,4 +1,4 @@
-import { sendMail, resetMessage } from './mail.js'
+import { sendMail, verificationMessage, resetMessage } from './mail.js'
 const encoder = new TextEncoder()
 export const SESSION_SECONDS = 7 * 24 * 60 * 60
 export const COOKIE = '__Host-easymath_session'
@@ -52,7 +52,7 @@ export async function readBody(request) {
 export function sameOrigin(request) {
   if (request.headers.get('origin') !== new URL(request.url).origin || request.headers.get('sec-fetch-site') === 'cross-site') throw new HttpError(403, 'Please submit this form from Easy Math.')
 }
-const publicUser = row => ({ id: row.id, name: row.name, email: row.email, dateOfBirth: row.date_of_birth })
+const publicUser = row => ({ id: row.id, name: row.name, email: row.email, dateOfBirth: row.date_of_birth, emailVerified: Boolean(row.email_verified_at) })
 function cookieName(request) { return new URL(request.url).protocol === 'https:' ? COOKIE : 'easymath_local_session' }
 function cookieValue(request, value, maxAge = SESSION_SECONDS) {
   return `${cookieName(request)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`
@@ -63,7 +63,7 @@ async function sessionHash(request) {
 }
 export async function currentUser(request, env) {
   const hash = await sessionHash(request); if (!hash) return null
-  const row = await env.DB.prepare('SELECT u.id, u.name, u.email, u.date_of_birth FROM auth_sessions s JOIN auth_users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?').bind(hash, Date.now()).first()
+  const row = await env.DB.prepare('SELECT u.id, u.name, u.email, u.date_of_birth, u.email_verified_at FROM auth_sessions s JOIN auth_users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?').bind(hash, Date.now()).first()
   return row ? publicUser(row) : null
 }
 async function limit(env, key, maximum, period) {
@@ -71,6 +71,7 @@ async function limit(env, key, maximum, period) {
   const row = await env.DB.prepare('INSERT INTO auth_limits (key_hash, hits, expires_at) VALUES (?, 1, ?) ON CONFLICT(key_hash) DO UPDATE SET hits = CASE WHEN expires_at <= ? THEN 1 ELSE hits + 1 END, expires_at = CASE WHEN expires_at <= ? THEN excluded.expires_at ELSE expires_at END RETURNING hits').bind(keyHash, now + period, now, now).first()
   if (row.hits > maximum) throw new HttpError(429, 'Too many attempts. Please try again later.')
 }
+const VERIFY_MS = 48 * 60 * 60 * 1000
 const RESET_MS = 60 * 60 * 1000
 const isDev = request => ['localhost', '127.0.0.1', '[::1]'].includes(new URL(request.url).hostname)
 // Email links carry the token in the URL fragment so it never reaches server logs or Referer headers.
@@ -94,12 +95,16 @@ async function background(ctx, task) {
   const safe = task.catch(() => console.error(JSON.stringify({ event: 'mail_failure' })))
   if (ctx?.waitUntil) ctx.waitUntil(safe); else await safe
 }
+async function sendVerification(request, env, user) {
+  const token = await issueToken(env, user.id, 'verify', VERIFY_MS)
+  return sendMail(env, verificationMessage(user.email, user.name, appLink(request, 'verify', token)), { dev: isDev(request) })
+}
 async function startSession(request, env, userId) {
   const token = randomHex(32)
   await env.DB.prepare('INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').bind(await digest(token), userId, Date.now() + SESSION_SECONDS * 1000).run()
   return cookieValue(request, token)
 }
-const AUTH_POSTS = ['register', 'login', 'logout', 'forgot', 'reset']
+const AUTH_POSTS = ['register', 'login', 'logout', 'forgot', 'reset', 'verify', 'resend-verification']
 export async function authRoute(request, env, path, ctx) {
   if (path === '/api/auth/me' && request.method === 'GET') return authJson({ user: await currentUser(request, env) })
   const action = path.slice('/api/auth/'.length)
@@ -114,15 +119,28 @@ export async function authRoute(request, env, path, ctx) {
   await limit(env, `auth-ip:${ip}`, 30, 15 * 60 * 1000)
   const now = Date.now()
   await env.DB.batch([env.DB.prepare('DELETE FROM auth_limits WHERE expires_at <= ?').bind(now), env.DB.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').bind(now), env.DB.prepare('DELETE FROM auth_tokens WHERE expires_at <= ?').bind(now)])
+  if (action === 'resend-verification') {
+    const user = await currentUser(request, env)
+    if (!user) throw new HttpError(401, 'Please sign in to continue.')
+    if (user.emailVerified) return authJson({ ok: true, verified: true })
+    await limit(env, `verify-send:${user.id}`, 3, 60 * 60 * 1000)
+    return authJson({ ok: true, sent: await sendVerification(request, env, user) })
+  }
   const body = await readBody(request)
+  if (action === 'verify') {
+    const userId = await consumeToken(env, body.token, 'verify')
+    if (!userId) throw new HttpError(400, 'This link has expired or was already used. Sign in and ask for a new one.')
+    await env.DB.prepare('UPDATE auth_users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').bind(now, userId).run()
+    return authJson({ ok: true })
+  }
   if (action === 'reset') {
     const password = checkPassword(body.password)
     const userId = await consumeToken(env, body.token, 'reset')
     if (!userId) throw new HttpError(400, 'This reset link has expired or was already used. Please ask for a new one.')
     const hashed = await hashPassword(password)
-    // A new password signs out every other device
+    // A new password signs out every other device; proving access to the inbox also confirms the email.
     await env.DB.batch([
-      env.DB.prepare('UPDATE auth_users SET password_hash = ?, password_salt = ? WHERE id = ?').bind(hashed.hash, hashed.salt, userId),
+      env.DB.prepare('UPDATE auth_users SET password_hash = ?, password_salt = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').bind(hashed.hash, hashed.salt, now, userId),
       env.DB.prepare('DELETE FROM auth_sessions WHERE user_id = ?').bind(userId),
       env.DB.prepare('DELETE FROM auth_tokens WHERE user_id = ? AND purpose = ?').bind(userId, 'reset'),
     ])
@@ -142,9 +160,10 @@ export async function authRoute(request, env, path, ctx) {
   if (action === 'register') {
     await limit(env, `signup:${ip}`, 5, 60 * 60 * 1000)
     const data = registration(body); const password = await hashPassword(data.password)
-    row = { id: crypto.randomUUID(), name: data.name, email: data.email, date_of_birth: data.dob }
+    row = { id: crypto.randomUUID(), name: data.name, email: data.email, date_of_birth: data.dob, email_verified_at: null }
     try { await env.DB.prepare('INSERT INTO auth_users (id, name, email, date_of_birth, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(row.id, row.name, row.email, row.date_of_birth, password.hash, password.salt, now).run() }
     catch (error) { if (/UNIQUE constraint failed.*email/i.test(error.message)) throw new HttpError(409, 'Unable to create this account. Try signing in or use a different email.'); throw error }
+    await background(ctx, sendVerification(request, env, publicUser(row)))
   } else {
     if (typeof body.password !== 'string' || body.password.length < 1 || body.password.length > 128) throw new HttpError(400, 'Enter your email and password.')
     row = await env.DB.prepare('SELECT * FROM auth_users WHERE email = ?').bind(email).first()

@@ -1,4 +1,4 @@
-// Sends account emails (password reset).
+// Sends account emails (verification and password reset).
 //
 // Production: set the RESEND_API_KEY secret and the MAIL_FROM variable (e.g. "Easy Math <hello@example.com>").
 // Tests: pass env.MAILER = { send(message) } to capture messages.
@@ -31,6 +31,12 @@ function layout(title, intro, button, link, outro) {
 <p style="margin:0 0 24px"><a href="${escape(link)}" style="display:inline-block;background:#24675c;color:#fff;text-decoration:none;font-weight:700;padding:14px 22px;border-radius:12px">${escape(button)}</a></p>
 <p style="font-size:14px;line-height:1.6;color:#5d6a6b;margin:0">${escape(outro)}</p>
 </div></body></html>`
+}
+
+export function verificationMessage(to, name, link) {
+  const intro = `Hi ${name}! Please confirm this email address so we can help if you ever forget your password.`
+  const outro = 'This link works for 48 hours. If you did not create an Easy Math account, you can ignore this email.'
+  return { to, subject: 'Confirm your Easy Math email', text: `${intro}\n\n${link}\n\n${outro}`, html: layout('Confirm your email', intro, 'Confirm my email', link, outro) }
 }
 
 export function resetMessage(to, name, link) {
