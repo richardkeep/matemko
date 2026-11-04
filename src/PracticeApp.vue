@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History, MailWarning } from 'lucide-vue-next'
+import { ArrowRight, Check, ChevronRight, CircleHelp, Printer, Sparkles, Star, Timer, Trophy, RotateCcw, X, CheckCircle2, CloudUpload, ShieldCheck, Heart, History, Users, MailWarning } from 'lucide-vue-next'
 import AppDialog from './components/AppDialog.vue'
 import MathMascot from './components/MathMascot.vue'
 import PracticeSetup from './components/PracticeSetup.vue'
@@ -8,6 +8,7 @@ import EquationCard from './components/EquationCard.vue'
 import LeaderboardPanel from './components/LeaderboardPanel.vue'
 import ExplorerProgress from './components/ExplorerProgress.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
+import FamilyPanel from './components/FamilyPanel.vue'
 import { BADGES, mergeProgress, readProgress, recordProgress, storeProgress, starsFor } from './lib/progress'
 import { useWorksheet } from './composables/useWorksheet'
 import { formatDuration, modeLabel } from './lib/worksheet'
@@ -101,7 +102,7 @@ const message = computed(() => !result.value ? '' : timedOut.value ? "Time's up!
   <div class="app-shell">
     <header class="site-header">
       <a class="brand" href="#" @click.prevent="view = 'practice'" aria-label="Easy Math home"><span class="brand-mark" aria-hidden="true">✦</span><span>Easy Math<span class="brand-dot">.</span></span></a>
-      <nav class="main-nav" aria-label="Main navigation"><button :class="{ active: view === 'practice' }" @click="view = 'practice'" :aria-current="view === 'practice' ? 'page' : undefined"><Sparkles :size="18" /><span>Let's play</span></button><button :class="{ active: view === 'history' }" @click="view = 'history'" :aria-current="view === 'history' ? 'page' : undefined"><History :size="18" /><span>My rounds</span></button><button :class="{ active: view === 'leaderboard' }" @click="view = 'leaderboard'" :aria-current="view === 'leaderboard' ? 'page' : undefined"><Trophy :size="18" /><span>Star board</span></button></nav>
+      <nav class="main-nav" aria-label="Main navigation"><button :class="{ active: view === 'practice' }" @click="view = 'practice'" :aria-current="view === 'practice' ? 'page' : undefined"><Sparkles :size="18" /><span>Let's play</span></button><button :class="{ active: view === 'history' }" @click="view = 'history'" :aria-current="view === 'history' ? 'page' : undefined"><History :size="18" /><span>My rounds</span></button><button :class="{ active: view === 'leaderboard' }" @click="view = 'leaderboard'" :aria-current="view === 'leaderboard' ? 'page' : undefined"><Trophy :size="18" /><span>Star board</span></button><button :class="{ active: view === 'family' }" @click="view = 'family'" :aria-current="view === 'family' ? 'page' : undefined"><Users :size="18" /><span>Family</span></button></nav>
       <button class="account-signout" :disabled="signingOut" @click="signOut">{{ signingOut ? 'Signing out…' : 'Sign out' }}</button>
       <button class="help-button" @click="showHelp = true" aria-label="How to play"><CircleHelp :size="20" /><span>How to play</span></button>
     </header>
@@ -129,6 +130,7 @@ const message = computed(() => !result.value ? '' : timedOut.value ? "Time's up!
         </div>
       </template>
       <HistoryPanel v-else-if="view === 'history'" @play="view = 'practice'" />
+      <FamilyPanel v-else-if="view === 'family'" />
       <LeaderboardPanel v-else @history="view = 'history'" />
     </main>
     <footer class="site-footer"><span class="footer-brand">Easy Math<span>✦</span><small>Little sums. Lovely possibilities.</small></span><span>Made for curious little minds <Heart :size="13" /></span><a href="https://github.com/cannonsh/matemko" target="_blank" rel="noopener noreferrer">Inspired by Lovro Papež <span>↗</span></a></footer>

@@ -1,6 +1,7 @@
 import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
 import { cleanProblems, isCorrect, trickySums, MODE_PATTERN, TIME_LIMITS } from './lib/worksheet.js';
-import { cleanProgress, mergeProgress } from './lib/progress.js';
+import { mergeProgress } from './lib/progress.js';
+import { familyRoute, readProgressRow } from './lib/family.js';
 // Serves the Vue build from ./dist and a small API backed by D1.
 //   GET  /api/attempts       -> top attempts, best first (sums only for your own rounds)
 //   POST /api/attempts       -> record an attempt
@@ -8,6 +9,7 @@ import { cleanProgress, mergeProgress } from './lib/progress.js';
 //   GET  /api/mistakes       -> sums you most recently got wrong or skipped
 //   GET  /api/progress       -> your stars, stickers and streak
 //   POST /api/progress       -> merge this device's progress into your account
+//   /api/family/*            -> grown-ups following learners (see lib/family.js)
 //   /api/auth/*              -> accounts (see lib/auth.js)
 
 const OPS = ['+', '−', '×', '÷'];
@@ -97,7 +99,7 @@ async function listAttempts(env, user) {
   return json(results.map(r => ({ ...roundJson(r, r.user_id === user.id), mine: r.user_id === user.id })));
 }
 
-async function roundsFor(env, userId, limit = MINE_LIMIT) {
+export async function roundsFor(env, userId, limit = MINE_LIMIT) {
   const { results } = await env.DB.prepare(`SELECT ${COLUMNS} FROM attempts WHERE user_id = ? ORDER BY id DESC LIMIT ?`).bind(userId, limit).all();
   return results.map(r => roundJson(r, true));
 }
@@ -105,11 +107,6 @@ async function roundsFor(env, userId, limit = MINE_LIMIT) {
 async function listMistakes(env, user) {
   const { results } = await env.DB.prepare('SELECT problems FROM attempts WHERE user_id = ? AND problems IS NOT NULL ORDER BY id DESC LIMIT 30').bind(user.id).all();
   return json({ problems: trickySums(results.map(r => parseProblems(r.problems))) });
-}
-
-async function readProgressRow(env, userId) {
-  const row = await env.DB.prepare('SELECT data FROM user_progress WHERE user_id = ?').bind(userId).first();
-  try { return cleanProgress(row ? JSON.parse(row.data) : null); } catch { return cleanProgress(null); }
 }
 
 async function progressRoute(request, env, user) {
@@ -157,6 +154,10 @@ async function apiRoute(request, env, url) {
   if (request.method === 'GET' && path === '/api/attempts/mine') return json(await roundsFor(env, user.id));
   if (request.method === 'GET' && path === '/api/mistakes') return listMistakes(env, user);
   if (path === '/api/progress') return progressRoute(request, env, user);
+  if (path === '/api/family' || path.startsWith('/api/family/')) {
+    if (request.method !== 'GET') sameOrigin(request);
+    return familyRoute(request, env, path, user, roundsFor);
+  }
   return authJson({ error: 'Not found.' }, 404);
 }
 

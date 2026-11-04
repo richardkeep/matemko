@@ -66,7 +66,7 @@ export async function currentUser(request, env) {
   const row = await env.DB.prepare('SELECT u.id, u.name, u.email, u.date_of_birth, u.email_verified_at FROM auth_sessions s JOIN auth_users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?').bind(hash, Date.now()).first()
   return row ? publicUser(row) : null
 }
-async function limit(env, key, maximum, period) {
+export async function limit(env, key, maximum, period) {
   const now = Date.now(); const keyHash = await digest(key)
   const row = await env.DB.prepare('INSERT INTO auth_limits (key_hash, hits, expires_at) VALUES (?, 1, ?) ON CONFLICT(key_hash) DO UPDATE SET hits = CASE WHEN expires_at <= ? THEN 1 ELSE hits + 1 END, expires_at = CASE WHEN expires_at <= ? THEN excluded.expires_at ELSE expires_at END RETURNING hits').bind(keyHash, now + period, now, now).first()
   if (row.hits > maximum) throw new HttpError(429, 'Too many attempts. Please try again later.')

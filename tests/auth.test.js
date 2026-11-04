@@ -185,3 +185,33 @@ test('progress syncs across devices by merging, per account', async () => {
     assert.equal((await call(env, '/api/progress', { progress: {} }, me, 'https://evil.example')).status, 403)
   } finally { env.sqlite.close() }
 })
+
+test('grown-ups follow a learner with a single-use code and see rounds but not private details', async () => {
+  const env = database()
+  try {
+    const child = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Little Explorer', email: 'kid@example.test' }))
+    const parent = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Grown Up', email: 'parent@example.test' }))
+    const stranger = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Stranger', email: 'stranger@example.test' }))
+    await call(env, '/api/attempts', { total: 1, right: 1, max: 10, ops: ['+'], durationMs: 1000, problems: [{ a: 1, op: '+', b: 1, c: 2, hide: 'c', answer: '2' }] }, child)
+    await call(env, '/api/progress', { progress: { rounds: 1, stars: 3 } }, child)
+    const { code } = await (await call(env, '/api/family/code', {}, child)).json()
+    assert.match(code, /^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$/)
+    assert.equal(env.sqlite.prepare('SELECT code_hash FROM guardian_codes').get().code_hash.includes(code.replace('-', '')), false)
+    assert.equal((await call(env, '/api/family/link', { code }, child)).status, 400)
+    const { code: fresh } = await (await call(env, '/api/family/code', {}, child)).json()
+    assert.equal((await call(env, '/api/family/link', { code }, parent)).status, 400)
+    assert.equal((await call(env, '/api/family/link', { code: fresh.toLowerCase().replace('-', ' ') }, parent)).status, 201)
+    assert.equal((await call(env, '/api/family/link', { code: fresh }, stranger)).status, 400)
+    const view = await (await call(env, '/api/family', undefined, parent)).json()
+    assert.equal(view.children.length, 1); assert.equal(view.children[0].name, 'Little Explorer'); assert.equal(view.children[0].progress.stars, 3)
+    assert.equal(view.children[0].rounds[0].problems[0].answer, '2')
+    assert.equal(JSON.stringify(view).includes('kid@example.test'), false); assert.equal(JSON.stringify(view).includes(fields.dateOfBirth), false)
+    assert.deepEqual((await (await call(env, '/api/family', undefined, child)).json()).guardians.map(g => g.name), ['Grown Up'])
+    assert.equal((await (await call(env, '/api/family', undefined, stranger)).json()).children.length, 0)
+    assert.equal((await call(env, '/api/family/code', {}, child, 'https://evil.example')).status, 403)
+    const childId = view.children[0].id
+    assert.equal((await call(env, '/api/family/unlink', { id: (await (await call(env, '/api/auth/me', undefined, parent)).json()).user.id }, child)).status, 200)
+    assert.equal((await (await call(env, '/api/family', undefined, parent)).json()).children.length, 0)
+    assert.ok(childId)
+  } finally { env.sqlite.close() }
+})
