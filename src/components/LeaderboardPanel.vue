@@ -24,7 +24,7 @@ const finishedAt = value => new Date(value).toLocaleString(undefined, { month: '
     <div class="board-intro"><div><span class="eyebrow"><span class="tiny-star">✦</span> EVERY LITTLE WIN COUNTS</span><h1 id="board-title">Our star board<span class="heading-dot">.</span></h1><p>A big round of applause for our maths explorers!</p></div><div class="trophy-art" aria-hidden="true"><Trophy :size="74" :stroke-width="1.5" /><span>✦</span><i>✧</i></div></div>
     <div class="board-toolbar"><label class="board-search"><Search :size="19" /><input v-model="search" aria-label="Find an explorer" placeholder="Find an explorer…" /></label><button class="button secondary" @click="load" :disabled="loading"><RefreshCw :size="17" :class="{ spinning: loading }" />Refresh</button></div>
     <div class="board-card">
-      <div class="board-card-heading"><h2><Medal :size="23" /> Top explorers</h2><span>Best score · then most correct · then fastest</span></div>
+      <div class="board-card-heading"><h2><Medal :size="23" /> Top explorers</h2><span>Each explorer's best round · best score, then most correct, then fastest</span></div>
       <div v-if="loading && !attempts.length" class="empty-board" role="status"><span class="loading-dots">•••</span><h3>Gathering our stars…</h3></div>
       <div v-else-if="error" class="empty-board" role="alert"><Globe2 :size="36" /><h3>Let's try that again</h3><p>{{ error }}</p><button class="button primary" @click="load">Try again</button></div>
       <div v-else-if="!visible.length" class="empty-board"><Trophy :size="46" /><h3>{{ search ? 'No explorer found just yet' : 'Your first adventure starts here' }}</h3><p>{{ search ? 'Try another name.' : 'Finish a round and be one of our first stars!' }}</p></div>

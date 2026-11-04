@@ -21,7 +21,7 @@ Playful maths practice for young explorers, built with Vue 3 and Vite.
 - Stars, stickers and streaks are saved on the device for instant feedback and synced to the account, so they follow the learner to other devices. Devices are merged by taking the larger total, so a round is never counted twice. All completed rounds earn a star, including rounds with mistakes.
 - **My rounds** lists the learner's last 50 rounds, each with the sums tried and the right answers, including rounds that never made the star board.
 - **Family**: a learner makes a single-use sharing code (valid 24 hours) and gives it to a parent, carer or teacher, who enters it on their own Family page. The grown-up then sees the learner's rounds, sums, stars, streak and stickers, never their email or birthday. Either side can remove the link.
-- Account names and checked scores are public on the shared star board.
+- The shared star board shows each explorer's best round (best score, then most correct, then fastest). Account names and those scores are public.
 - Existing shared attempts stay in Cloudflare D1. Connection failures offer a save retry.
 - Print up to 30 questions per A4 page. Reduced-motion preferences are respected.
 
