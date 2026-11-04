@@ -11,6 +11,11 @@
       "/api/*"
     ]
   },
+  // Sender for verification and password-reset emails (domain must be verified in Resend).
+  // RESEND_API_KEY is a secret: set it with `npx wrangler secret put RESEND_API_KEY`.
+  "vars": {
+    "MAIL_FROM": "Easy Math <hello@ricnovasoftware.com>"
+  },
   "d1_databases": [
     {
       "binding": "DB",

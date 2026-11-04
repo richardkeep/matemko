@@ -79,3 +79,139 @@ test('a round\'s sums are saved, must match the score, and are only returned to 
     assert.equal(theirs.mine, false); assert.equal(theirs.problems, null); assert.equal(theirs.right, 1)
   } finally { env.sqlite.close() }
 })
+
+const outbox = env => { const sent = []; env.MAILER = { send: message => { sent.push(message) } }; return sent }
+const tokenIn = (message, kind) => new RegExp(`#${kind}=([a-f0-9]{64})`).exec(message.text)[1]
+
+test('sign-up sends a single-use verification link that confirms the email', async () => {
+  const env = database(); const sent = outbox(env)
+  try {
+    const r = await call(env, '/api/auth/register', fields); const session = cookie(r)
+    assert.equal((await r.json()).user.emailVerified, false)
+    assert.equal(sent.length, 1); assert.equal(sent[0].to, fields.email); assert.match(sent[0].text, /^.*https:\/\/maths\.example\.test\/#verify=/m)
+    const token = tokenIn(sent[0], 'verify')
+    assert.equal(env.sqlite.prepare('SELECT token_hash FROM auth_tokens').get().token_hash === token, false)
+    assert.equal((await call(env, '/api/auth/verify', { token: 'f'.repeat(64) })).status, 400)
+    assert.equal((await call(env, '/api/auth/verify', { token })).status, 200)
+    assert.equal((await call(env, '/api/auth/verify', { token })).status, 400)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, session)).json()).user.emailVerified, true)
+    assert.equal((await (await call(env, '/api/auth/resend-verification', {}, session)).json()).verified, true)
+    assert.equal(sent.length, 1)
+  } finally { env.sqlite.close() }
+})
+
+test('verification links can be resent a few times, and an old link stops working', async () => {
+  const env = database(); const sent = outbox(env)
+  try {
+    const session = cookie(await call(env, '/api/auth/register', fields))
+    assert.equal((await call(env, '/api/auth/resend-verification', {})).status, 401)
+    for (let i = 0; i < 3; i++) assert.equal((await (await call(env, '/api/auth/resend-verification', {}, session)).json()).sent, true)
+    assert.equal((await call(env, '/api/auth/resend-verification', {}, session)).status, 429)
+    assert.equal((await call(env, '/api/auth/verify', { token: tokenIn(sent[0], 'verify') })).status, 400)
+    assert.equal((await call(env, '/api/auth/verify', { token: tokenIn(sent.at(-1), 'verify') })).status, 200)
+  } finally { env.sqlite.close() }
+})
+
+test('password reset answers the same for unknown emails, works once, expires and signs out other devices', async () => {
+  const env = database(); const sent = outbox(env)
+  try {
+    const oldSession = cookie(await call(env, '/api/auth/register', fields)); sent.length = 0
+    const unknown = await call(env, '/api/auth/forgot', { email: 'nobody@example.test' })
+    const known = await call(env, '/api/auth/forgot', { email: fields.email.toUpperCase() })
+    assert.equal(unknown.status, 200); assert.deepEqual(await unknown.json(), await known.json())
+    assert.equal(sent.length, 1); assert.equal(sent[0].to, fields.email)
+    const token = tokenIn(sent[0], 'reset')
+    assert.equal((await call(env, '/api/auth/reset', { token, password: 'short' })).status, 400)
+    const reset = await call(env, '/api/auth/reset', { token, password: 'A-brand-new-password' })
+    assert.equal(reset.status, 200); const body = await reset.json(); assert.equal(body.user.emailVerified, true)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, oldSession)).json()).user, null)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, cookie(reset))).json()).user.id, body.user.id)
+    assert.equal((await call(env, '/api/auth/reset', { token, password: 'Another-new-password' })).status, 400)
+    assert.equal((await call(env, '/api/auth/login', { email: fields.email, password: fields.password })).status, 401)
+    assert.equal((await call(env, '/api/auth/login', { email: fields.email, password: 'A-brand-new-password' })).status, 200)
+    await call(env, '/api/auth/forgot', { email: fields.email }); env.sqlite.exec('UPDATE auth_tokens SET expires_at = 1')
+    assert.equal((await call(env, '/api/auth/reset', { token: tokenIn(sent.at(-1), 'reset'), password: 'Expired-link-password' })).status, 400)
+    await call(env, '/api/auth/forgot', { email: fields.email })
+    assert.equal((await call(env, '/api/auth/forgot', { email: fields.email })).status, 429)
+  } finally { env.sqlite.close() }
+})
+
+test('my rounds include every round I played with sums, and tricky sums come from my latest misses', async () => {
+  const env = database()
+  try {
+    const me = cookie(await call(env, '/api/auth/register', fields))
+    const other = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Other', email: 'other@example.test' }))
+    const p = (a, answer) => ({ a, op: '+', b: 1, c: a + 1, hide: 'c', answer })
+    const round = problems => ({ total: problems.length, right: problems.filter(x => x.answer === String(x.c)).length, max: 20, ops: ['+'], durationMs: 1000, problems, mode: 'mix' })
+    assert.equal((await call(env, '/api/attempts', round([p(1, '0'), p(2, '')]), me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', round([p(1, '2'), p(5, '6')]), me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', round([p(9, '0')]), other)).status, 201)
+    const mine = await (await call(env, '/api/attempts/mine', undefined, me)).json()
+    assert.equal(mine.length, 2); assert.equal(mine[0].problems[1].a, 5); assert.equal(mine[0].mode, 'mix')
+    assert.deepEqual((await (await call(env, '/api/mistakes', undefined, me)).json()).problems, [{ a: 2, op: '+', b: 1, c: 3, hide: 'c' }])
+    assert.equal((await call(env, '/api/attempts/mine')).status, 401)
+  } finally { env.sqlite.close() }
+})
+
+test('round modes and timers are validated against the sums', async () => {
+  const env = database()
+  try {
+    const me = cookie(await call(env, '/api/auth/register', fields))
+    const table = [{ a: 7, op: '×', b: 3, c: 21, hide: 'c', answer: '21' }]
+    const base = { total: 1, right: 1, max: 84, ops: ['×'], durationMs: 30000, problems: table }
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 60000 }, me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-8' }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-99' }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 45000 }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 60000, durationMs: 90000 }, me)).status, 400)
+    const bonds = [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }, { a: 10, op: '−', b: 3, c: 7, hide: 'c', answer: '' }]
+    assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 10, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-10' }, me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 20, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-20' }, me)).status, 400)
+    const board = await (await call(env, '/api/attempts', undefined, me)).json()
+    assert.deepEqual(board.map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
+  } finally { env.sqlite.close() }
+})
+
+test('progress syncs across devices by merging, per account', async () => {
+  const env = database()
+  try {
+    const me = cookie(await call(env, '/api/auth/register', fields))
+    const other = cookie(await call(env, '/api/auth/register', { ...fields, email: 'other@example.test' }))
+    assert.equal((await (await call(env, '/api/progress', undefined, me)).json()).progress.rounds, 0)
+    await call(env, '/api/progress', { progress: { rounds: 5, stars: 10, lastDay: '2026-11-03', streak: 2, bestStreak: 2, dailyStars: 3 } }, me)
+    const merged = (await (await call(env, '/api/progress', { progress: { rounds: 2, stars: 4, lastDay: '2026-11-04', streak: 3, dailyStars: 1, hacked: true } }, me)).json()).progress
+    assert.equal(merged.rounds, 5); assert.equal(merged.stars, 10); assert.equal(merged.lastDay, '2026-11-04'); assert.equal(merged.streak, 3); assert.equal(merged.bestStreak, 3); assert.equal(merged.hacked, undefined)
+    assert.equal((await (await call(env, '/api/progress', undefined, other)).json()).progress.rounds, 0)
+    assert.equal((await call(env, '/api/progress', { progress: {} }, me, 'https://evil.example')).status, 403)
+  } finally { env.sqlite.close() }
+})
+
+test('grown-ups follow a learner with a single-use code and see rounds but not private details', async () => {
+  const env = database()
+  try {
+    const child = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Little Explorer', email: 'kid@example.test' }))
+    const parent = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Grown Up', email: 'parent@example.test' }))
+    const stranger = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Stranger', email: 'stranger@example.test' }))
+    await call(env, '/api/attempts', { total: 1, right: 1, max: 10, ops: ['+'], durationMs: 1000, problems: [{ a: 1, op: '+', b: 1, c: 2, hide: 'c', answer: '2' }] }, child)
+    await call(env, '/api/progress', { progress: { rounds: 1, stars: 3 } }, child)
+    const { code } = await (await call(env, '/api/family/code', {}, child)).json()
+    assert.match(code, /^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$/)
+    assert.equal(env.sqlite.prepare('SELECT code_hash FROM guardian_codes').get().code_hash.includes(code.replace('-', '')), false)
+    assert.equal((await call(env, '/api/family/link', { code }, child)).status, 400)
+    const { code: fresh } = await (await call(env, '/api/family/code', {}, child)).json()
+    assert.equal((await call(env, '/api/family/link', { code }, parent)).status, 400)
+    assert.equal((await call(env, '/api/family/link', { code: fresh.toLowerCase().replace('-', ' ') }, parent)).status, 201)
+    assert.equal((await call(env, '/api/family/link', { code: fresh }, stranger)).status, 400)
+    const view = await (await call(env, '/api/family', undefined, parent)).json()
+    assert.equal(view.children.length, 1); assert.equal(view.children[0].name, 'Little Explorer'); assert.equal(view.children[0].progress.stars, 3)
+    assert.equal(view.children[0].rounds[0].problems[0].answer, '2')
+    assert.equal(JSON.stringify(view).includes('kid@example.test'), false); assert.equal(JSON.stringify(view).includes(fields.dateOfBirth), false)
+    assert.deepEqual((await (await call(env, '/api/family', undefined, child)).json()).guardians.map(g => g.name), ['Grown Up'])
+    assert.equal((await (await call(env, '/api/family', undefined, stranger)).json()).children.length, 0)
+    assert.equal((await call(env, '/api/family/code', {}, child, 'https://evil.example')).status, 403)
+    const childId = view.children[0].id
+    assert.equal((await call(env, '/api/family/unlink', { id: (await (await call(env, '/api/auth/me', undefined, parent)).json()).user.id }, child)).status, 200)
+    assert.equal((await (await call(env, '/api/family', undefined, parent)).json()).children.length, 0)
+    assert.ok(childId)
+  } finally { env.sqlite.close() }
+})
