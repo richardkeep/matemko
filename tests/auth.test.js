@@ -236,3 +236,38 @@ test('the star board shows only each explorer\'s best round', async () => {
     assert.equal((await (await call(env, '/api/attempts/mine', undefined, ada)).json()).length, 4)
   } finally { env.sqlite.close() }
 })
+
+test('only a confirmed platform admin can see who is online, and never their private details', async () => {
+  const env = { ...database(), ADMIN_EMAILS: ' Admin@Example.test , other-admin@example.test' }
+  const sent = outbox(env)
+  try {
+    const admin = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Admin', email: 'admin@example.test' }))
+    const kid = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Kid', email: 'kid@example.test' }))
+    const idle = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Idle', email: 'idle@example.test' }))
+    // An unconfirmed admin email is not enough
+    assert.equal((await (await call(env, '/api/auth/me', undefined, admin)).json()).user.isAdmin, false)
+    assert.equal((await call(env, '/api/admin/online', undefined, admin)).status, 404)
+    await call(env, '/api/auth/verify', { token: tokenIn(sent.find(m => m.to === 'admin@example.test'), 'verify') })
+    assert.equal((await (await call(env, '/api/auth/me', undefined, admin)).json()).user.isAdmin, true)
+    assert.equal((await (await call(env, '/api/auth/me', undefined, kid)).json()).user.isAdmin, false)
+    // Heartbeats are validated and same-origin only
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: true }, kid)).status, 200)
+    assert.equal((await call(env, '/api/presence', { activity: 'hacking', inRound: true }, kid)).status, 400)
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: 'yes' }, kid)).status, 400)
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: false }, kid, 'https://evil.example')).status, 403)
+    assert.equal((await call(env, '/api/presence', { activity: 'practice', inRound: false })).status, 401)
+    await call(env, '/api/presence', { activity: 'history', inRound: false }, idle)
+    await call(env, '/api/presence', { activity: 'admin', inRound: false }, admin)
+    env.sqlite.exec(`UPDATE presence SET last_seen = ${Date.now() - 10 * 60 * 1000} WHERE activity = 'history'`)
+    await call(env, '/api/attempts', { total: 1, right: 1, max: 10, ops: ['+'], durationMs: 1000 }, kid)
+    const view = await (await call(env, '/api/admin/online', undefined, admin)).json()
+    assert.deepEqual(view.online.map(p => [p.name, p.activity, p.inRound, p.roundsToday]), [['Kid', 'practice', true, 1], ['Admin', 'admin', false, 0]])
+    assert.deepEqual(view.counts, { online: 2, activeToday: 3, activeWeek: 3, learners: 3, roundsToday: 1 })
+    assert.equal(/@|dateOfBirth|2016-05-14/.test(JSON.stringify(view)), false)
+    // Everyone else gets "not found"
+    assert.equal((await call(env, '/api/admin/online', undefined, kid)).status, 404)
+    assert.equal((await call(env, '/api/admin/online')).status, 401)
+    assert.equal((await call(env, '/api/admin/online', undefined, admin, undefined)).status, 200)
+    assert.equal((await call({ ...env, ADMIN_EMAILS: undefined }, '/api/admin/online', undefined, admin)).status, 404)
+  } finally { env.sqlite.close() }
+})

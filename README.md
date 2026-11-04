@@ -65,6 +65,12 @@ Accounts live in the existing D1 database. Passwords are salted with cryptograph
 
 Sticker progress is cached on the device per account ID and synced to the `user_progress` table. The account name is used automatically, with no separate explorer-name field. Existing pre-account local progress is left untouched but is not automatically claimed by a new account.
 
+### Platform admin: who's online
+
+While Easy Math is open and visible, the app sends a heartbeat to `POST /api/presence` about once a minute, and again whenever the page or round state changes. The server keeps one row per learner in `presence`: last seen, current page, whether a round is in progress, and country. It keeps no history. Learners seen in the last two minutes count as online.
+
+Platform admins get an **Admin** tab showing who is online now, plus counts for the last 24 hours and 7 days, accounts, and rounds. Admins are listed by email in `ADMIN_EMAILS` in `wrangler.jsonc` (comma separated) and must have confirmed that email. Everyone else gets 404 from `GET /api/admin/online`, and the tab is hidden. Emails and birthdays are never included.
+
 ### Email verification and password reset
 
 Sign-up sends a link to confirm the email. Confirmation is a gentle banner with a "Send it again" button, not a requirement, so existing accounts keep working. "Forgot your password?" sends a reset link. It gives the same answer whether or not the email has an account. Reset links work once, for one hour. A reset signs out every other device and also confirms the email.
@@ -87,4 +93,4 @@ Without these, production accounts still work, but no verification or reset emai
 
 Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply easymath --remote`. Migrations from `0004` onwards were added after the original release. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
 
-`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership, email verification, password reset, round modes and timers, my rounds, tricky sums, progress sync and family links. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.
+`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership, email verification, password reset, round modes and timers, my rounds, tricky sums, progress sync, family links and admin presence. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.

@@ -184,3 +184,20 @@
 }
 @media(max-width:390px){.main-nav button{font-size:12px;padding:8px 2px}}
 @media print{.verify-banner,.page-notice,.tricky-notice,.history-view,.family-view{display:none!important}}
+
+/* Platform admin: who's online */
+.admin-stats strong{display:flex;align-items:center;gap:8px}
+.admin-stats strong svg{color:#9bb08a}
+.admin-activity{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#55665c}
+.admin-activity i{width:8px;height:8px;border-radius:50%;background:#b9c4b0}
+.admin-activity.live{color:#2f5d2c}
+.admin-activity.live i{background:#4f9b5b;box-shadow:0 0 0 3px #dcefd8}
+.admin-phone-only{display:none}
+.brand,.help-button{white-space:nowrap}
+@media(max-width:1340px){.help-button span{display:none}}
+@media(max-width:650px){
+ .admin-stats{grid-template-columns:repeat(2,1fr)}
+ .admin-table th:not(:first-child),.admin-table td:not(:first-child){display:none}
+ .admin-table .admin-phone-only{display:inline-flex;margin-top:6px}
+}
+@media print{.admin-view{display:none!important}}
