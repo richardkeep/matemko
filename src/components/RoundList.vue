@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { ChevronDown } from 'lucide-vue-next'
+import { ChevronDown, Timer } from 'lucide-vue-next'
 import SumsList from './SumsList.vue'
 import { formatDuration, modeLabel } from '../lib/worksheet'
 defineProps({ rounds: { type: Array, required: true }, sumsLabel: { type: String, default: 'sums' } })
@@ -14,7 +14,7 @@ const percent = round => Math.round(round.right / round.total * 100)
     <li v-for="round in rounds" :key="round.id" class="round-item">
       <div class="round-summary">
         <span :class="['round-score', percent(round) >= 90 ? 'great' : percent(round) >= 60 ? 'good' : 'growing']">{{ percent(round) }}<small>%</small></span>
-        <div class="round-meta"><strong>{{ modeLabel(round.mode) || round.ops.join(' ') }}<span v-if="!modeLabel(round.mode)" class="round-limit"> · to {{ round.max }}</span></strong><small>{{ when(round.endedAt) }} · {{ round.right }} / {{ round.total }} correct · {{ formatDuration(round.endedAt - round.startedAt) }}</small></div>
+        <div class="round-meta"><strong>{{ modeLabel(round.mode) || round.ops.join(' ') }}<span v-if="!modeLabel(round.mode)" class="round-limit"> · to {{ round.max }}</span></strong><small>{{ when(round.endedAt) }} · {{ round.right }} / {{ round.total }} correct · {{ formatDuration(round.endedAt - round.startedAt) }}<span v-if="round.timeLimitMs" class="round-timed"><Timer :size="13" />{{ round.timeLimitMs / 60000 }} min</span></small></div>
         <button class="sums-toggle" :aria-expanded="openId === round.id" @click="toggle(round.id)">{{ openId === round.id ? `Hide ${sumsLabel}` : `See ${sumsLabel}` }} <ChevronDown :size="15" :class="{ flipped: openId === round.id }" /></button>
       </div>
       <SumsList v-if="openId === round.id" :problems="round.problems" />

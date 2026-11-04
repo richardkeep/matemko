@@ -153,15 +153,22 @@ test('my rounds include every round I played with sums, and tricky sums come fro
   } finally { env.sqlite.close() }
 })
 
-test('round modes are validated and tricky-sum rounds must include their sums', async () => {
+test('round modes and timers are validated against the sums', async () => {
   const env = database()
   try {
     const me = cookie(await call(env, '/api/auth/register', fields))
-    const base = { total: 1, right: 1, max: 10, ops: ['+'], durationMs: 1000, problems: [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }] }
-    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'mistakes' }, me)).status, 201)
-    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'anything' }, me)).status, 400)
-    assert.equal((await call(env, '/api/attempts', { ...base, problems: undefined, mode: 'mistakes' }, me)).status, 400)
-    assert.equal((await (await call(env, '/api/attempts', undefined, me)).json())[0].mode, 'mistakes')
+    const table = [{ a: 7, op: '×', b: 3, c: 21, hide: 'c', answer: '21' }]
+    const base = { total: 1, right: 1, max: 84, ops: ['×'], durationMs: 30000, problems: table }
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 60000 }, me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-8' }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-99' }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 45000 }, me)).status, 400)
+    assert.equal((await call(env, '/api/attempts', { ...base, mode: 'table-7', timeLimitMs: 60000, durationMs: 90000 }, me)).status, 400)
+    const bonds = [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }, { a: 10, op: '−', b: 3, c: 7, hide: 'c', answer: '' }]
+    assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 10, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-10' }, me)).status, 201)
+    assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 20, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-20' }, me)).status, 400)
+    const board = await (await call(env, '/api/attempts', undefined, me)).json()
+    assert.deepEqual(board.map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
   } finally { env.sqlite.close() }
 })
 

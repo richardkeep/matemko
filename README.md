@@ -8,9 +8,12 @@ Playful maths practice for young explorers, built with Vue 3 and Vite.
 
 ## Learning and play
 
-- Two kinds of adventure:
+- Four kinds of adventure:
   - **Mix it up**: addition, subtraction, multiplication and whole-number division, with missing answers or operands. Choose a maximum of 10, 20, 50 or 100.
+  - **Times tables**: drill one table from 2 to 12. Each round covers 1–12 before anything repeats.
+  - **Number bonds**: pairs that make 10, 20 or 100, as a missing addend or a subtraction from the target.
   - **Tricky sums**: sums the learner most recently got wrong or skipped. Getting one right takes it off the list.
+- Any adventure can be played against the clock (1, 2 or 3 minutes). The clock starts with the first answer and the round is checked automatically when time runs out.
 - 5–30 questions per round. Settings lock once an attempt starts.
 - Large answer boxes, keyboard navigation, friendly explanations, a cheerful star mascot and responsive phone layouts.
 - Earn 1–3 stars per completed round, follow a five-star daily trail, collect six achievement stickers, and build a practice streak.
@@ -83,4 +86,4 @@ Without these, production accounts still work, but no verification or reset emai
 
 Apply D1 migrations before deploying code that uses new tables: `npx wrangler d1 migrations apply matemko --remote`. Migrations from `0004` onwards were added after the original release. The `npm run deploy` script applies migrations before deployment. Cloudflare's connected build currently runs tests and builds the site, then deploys the Worker; database changes must be applied first.
 
-`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership, email verification, password reset, round modes, my rounds, tricky sums and progress sync. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.
+`npm test` includes isolated SQLite-backed integration tests for registration, validation, password verification, sessions, logout, expiry, CSRF, throttling, authenticated score ownership, email verification, password reset, round modes and timers, my rounds, tricky sums and progress sync. `npm run dev` applies local D1 migrations and starts the Worker and Vue preview.

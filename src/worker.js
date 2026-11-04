@@ -1,5 +1,5 @@
 import { authRoute, currentUser, HttpError, authJson, sameOrigin, readBody } from './lib/auth.js';
-import { cleanProblems, isCorrect, trickySums, MODE_PATTERN } from './lib/worksheet.js';
+import { cleanProblems, isCorrect, trickySums, MODE_PATTERN, TIME_LIMITS } from './lib/worksheet.js';
 import { cleanProgress, mergeProgress } from './lib/progress.js';
 // Serves the Vue build from ./dist and a small API backed by D1.
 //   GET  /api/attempts       -> top attempts, best first (sums only for your own rounds)
@@ -23,6 +23,15 @@ const json = (body, status = 200, headers = {}) =>
 
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 
+// Every sum in a times-table or number-bond round must belong to that table or bond
+function fitsMode(problem, mode) {
+  const [kind, value] = mode.split('-');
+  const n = Number(value);
+  if (kind === 'table') return problem.op === '×' && (problem.a === n || problem.b === n);
+  if (kind === 'bonds') return (problem.op === '+' && problem.c === n) || (problem.op === '−' && problem.a === n);
+  return true;
+}
+
 // Returns a clean attempt, or null when the payload is not acceptable
 export function parseAttempt(body) {
   if (!body || typeof body !== 'object') return null;
@@ -32,14 +41,17 @@ export function parseAttempt(body) {
   if (!isInt(body.max, 1, 100000) || !isInt(body.durationMs, 0, DAY_MS)) return null;
   if (!Array.isArray(body.ops) || body.ops.length < 1 || body.ops.length > OPS.length) return null;
   if (!body.ops.every(op => OPS.includes(op)) || new Set(body.ops).size !== body.ops.length) return null;
-  // The mode is optional so pages loaded before it existed can still save
+  // Mode and time limit are optional so pages loaded before they existed can still save
   const mode = body.mode ?? null;
   if (mode !== null && (typeof mode !== 'string' || !MODE_PATTERN.test(mode))) return null;
-  // The sums are optional too; when sent, they must match the score
+  const timeLimitMs = body.timeLimitMs ?? null;
+  if (timeLimitMs !== null && (!TIME_LIMITS.includes(timeLimitMs) || body.durationMs > timeLimitMs + 5000)) return null;
+  // The sums are optional too; when sent, they must match the score and the mode
   let problems = null;
   if (body.problems !== undefined) {
     problems = cleanProblems(body.problems, body.total);
     if (!problems || !problems.every(p => body.ops.includes(p.op))) return null;
+    if (mode && !problems.every(p => fitsMode(p, mode))) return null;
     if (problems.filter(p => isCorrect(p, p.answer)).length !== body.right) return null;
   } else if (mode && mode !== 'mix') return null;
   const endedAt = Date.now();
@@ -53,11 +65,12 @@ export function parseAttempt(body) {
     total: body.total,
     problems,
     mode,
+    timeLimitMs,
   };
 }
 
 const parseProblems = text => { try { return text ? JSON.parse(text) : null; } catch { return null; } };
-const COLUMNS = 'id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode';
+const COLUMNS = 'id, name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode, time_limit_ms';
 const roundJson = (r, withProblems) => ({
   id: r.id,
   name: r.name,
@@ -69,6 +82,7 @@ const roundJson = (r, withProblems) => ({
   total: r.total,
   country: r.country,
   mode: r.mode,
+  timeLimitMs: r.time_limit_ms,
   problems: withProblems ? parseProblems(r.problems) : null,
 });
 
@@ -125,9 +139,9 @@ async function createAttempt(request, env, user) {
   const cc = request.cf?.country;
   const country = typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null;
   await env.DB.prepare(
-    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id, a.problems && JSON.stringify(a.problems), a.mode).run();
+    `INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total, country, user_id, problems, mode, time_limit_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(a.name, a.startedAt, a.endedAt, a.ops, a.max, a.right, a.total, country, user.id, a.problems && JSON.stringify(a.problems), a.mode, a.timeLimitMs).run();
   return json({ ok: true }, 201);
 }
 

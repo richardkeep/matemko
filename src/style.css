@@ -95,6 +95,8 @@
 .mode-note{margin:0 0 4px;padding:12px 14px;border-radius:12px;background:#faf6ec;color:#6b6450;font-size:14px;line-height:1.5}
 .settings-pair{row-gap:16px}
 .tricky-notice{margin:0;padding:13px 16px;border-radius:14px;background:#f2f8ee;border:1px solid #d6e9cc;color:#3c6634;font-size:14px;line-height:1.5}
+.timer.countdown{padding:5px 11px;border-radius:999px;background:#eef5ea;color:#3c6634;font-weight:700}
+.timer.hurry{background:#fff0e3;color:#9a4f19}
 
 /* Notices and email confirmation */
 .auth-success{padding:12px 14px;background:#eef8ea;border:1px solid #bcdcb0;border-radius:10px;color:#2f5d2c;font-size:14px;margin:16px 0 0;line-height:1.5}
@@ -114,6 +116,7 @@
 
 /* Star board extras */
 .board-mode{font-size:15px;font-weight:700;color:#7c8a62}
+.round-timed{display:inline-flex;align-items:center;gap:3px;margin-left:8px;padding:1px 8px;border-radius:999px;background:#fff1e1;color:#9a5a24;font-size:13px;font-weight:650;vertical-align:middle}
 .board-history-link{display:flex;align-items:center;gap:8px;margin:18px auto 0;border:0;background:none;font-size:14px;font-weight:650;color:var(--green)}
 .board-history-link:hover{text-decoration:underline}
 

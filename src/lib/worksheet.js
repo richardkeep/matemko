@@ -27,7 +27,33 @@ export function generateWorksheet({ max, count, ops }, random = Math.random) {
   }
   return equations
 }
-export const MODE_PATTERN = /^(mix|mistakes)$/
+export const TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+export const BOND_TARGETS = [10, 20, 100]
+export const TIME_LIMITS = [60000, 120000, 180000]
+export const MODE_PATTERN = /^(mix|mistakes|table-(?:[2-9]|1[0-2])|bonds-(?:10|20|100))$/
+// Times-table drill: every sum uses the chosen table, on either side of the ×
+export function generateTable({ table, count }, random = Math.random) {
+  if (!TABLES.includes(table) || ![5, 10, 15, 20, 30].includes(count)) throw new Error('Choose valid worksheet settings.')
+  const order = []
+  while (order.length < count) order.push(...shuffle(Array.from({ length: 12 }, (_, index) => index + 1), random))
+  return order.slice(0, count).map(n => {
+    const [a, b] = random() < 0.5 ? [n, table] : [table, n]
+    return { a, op: '×', b, c: a * b, hide: pick(['c', 'c', 'c', a === table ? 'b' : 'a'], random) }
+  })
+}
+// Number bonds: pairs that make the target, as a missing addend or a subtraction from the target
+export function generateBonds({ target, count }, random = Math.random) {
+  if (!BOND_TARGETS.includes(target) || ![5, 10, 15, 20, 30].includes(count)) throw new Error('Choose valid worksheet settings.')
+  const seen = new Set(); const equations = []; let attempts = 0
+  while (equations.length < count) {
+    const a = randomInt(0, target, random)
+    const equation = random() < 0.7 ? { a, op: '+', b: target - a, c: target, hide: pick(['a', 'b'], random) } : { a: target, op: '−', b: a, c: target - a, hide: pick(['b', 'c'], random) }
+    const key = `${equation.a}${equation.op}${equation.b}${equation.hide}`
+    if (seen.has(key) && ++attempts < 500) continue
+    seen.add(key); equations.push(equation)
+  }
+  return equations
+}
 export function shuffle(items, random = Math.random) {
   const copy = [...items]
   for (let i = copy.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [copy[i], copy[j]] = [copy[j], copy[i]] }
@@ -44,7 +70,9 @@ export function trickySums(rounds, limit = 30) {
 }
 export function modeLabel(mode) {
   if (!mode || mode === 'mix') return ''
-  return mode === 'mistakes' ? 'Tricky sums' : ''
+  if (mode === 'mistakes') return 'Tricky sums'
+  const [kind, value] = mode.split('-')
+  return kind === 'table' ? `${value} times table` : `Bonds to ${value}`
 }
 export function isCorrect(equation, answer) {
   return String(answer ?? '').trim() !== '' && /^\d+$/.test(String(answer).trim()) && Number(answer) === equation[equation.hide]
