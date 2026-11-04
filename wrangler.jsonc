@@ -19,8 +19,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "matemko",
-      "database_id": "e78a05da-5738-42ce-8fb7-cc3bca5a9b6e",
+      "database_name": "easymath",
+      "database_id": "451e1ad5-16c8-403e-a8d0-f7e3cda5ec9d",
       "migrations_dir": "migrations"
     }
   ]

@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 const run = (file, args) => spawnSync(process.execPath, [file, ...args], { stdio: 'inherit' })
 for (const [file, args] of [
   ['node_modules/vite/bin/vite.js', ['build']],
-  ['node_modules/wrangler/bin/wrangler.js', ['d1','migrations','apply','matemko','--local']],
+  ['node_modules/wrangler/bin/wrangler.js', ['d1','migrations','apply','easymath','--local']],
 ]) {
   const result = run(file, args)
   if (result.status !== 0) process.exit(result.status || 1)

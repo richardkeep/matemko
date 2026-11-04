@@ -3,7 +3,7 @@ import { cleanProblems, isCorrect, trickySums, MODE_PATTERN, TIME_LIMITS } from 
 import { mergeProgress } from './lib/progress.js';
 import { familyRoute, readProgressRow } from './lib/family.js';
 // Serves the Vue build from ./dist and a small API backed by D1.
-//   GET  /api/attempts       -> top attempts, best first (sums only for your own rounds)
+//   GET  /api/attempts       -> each explorer's best round, best first (sums only for your own)
 //   POST /api/attempts       -> record an attempt
 //   GET  /api/attempts/mine  -> your own most recent rounds, with their sums
 //   GET  /api/mistakes       -> sums you most recently got wrong or skipped
@@ -88,12 +88,19 @@ const roundJson = (r, withProblems) => ({
   problems: withProblems ? parseProblems(r.problems) : null,
 });
 
-// Everyone sees the scores; a round's sums are only returned to the account that played it
+// Star board order: best score, then most correct, then fastest, then newest
+const RANKING = 'CAST(correct AS REAL) / total DESC, correct DESC, ended_at - started_at ASC, id DESC';
+
+// One row per explorer: their best round. Rounds from before accounts existed have no
+// user_id, so those are grouped by name. Everyone sees the scores; a round's sums are only
+// returned to the account that played it.
 async function listAttempts(env, user) {
   const { results } = await env.DB.prepare(
     `SELECT ${COLUMNS}
-       FROM attempts
-      ORDER BY CAST(correct AS REAL) / total DESC, correct DESC, ended_at - started_at ASC, id DESC
+       FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY COALESCE(user_id, 'name:' || name) ORDER BY ${RANKING}) AS place
+               FROM attempts)
+      WHERE place = 1
+      ORDER BY ${RANKING}
       LIMIT ?`
   ).bind(TOP_LIMIT).all();
   return json(results.map(r => ({ ...roundJson(r, r.user_id === user.id), mine: r.user_id === user.id })));

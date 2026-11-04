@@ -167,8 +167,10 @@ test('round modes and timers are validated against the sums', async () => {
     const bonds = [{ a: 4, op: '+', b: 6, c: 10, hide: 'a', answer: '4' }, { a: 10, op: '−', b: 3, c: 7, hide: 'c', answer: '' }]
     assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 10, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-10' }, me)).status, 201)
     assert.equal((await call(env, '/api/attempts', { total: 2, right: 1, max: 20, ops: ['+', '−'], durationMs: 1000, problems: bonds, mode: 'bonds-20' }, me)).status, 400)
+    const mine = await (await call(env, '/api/attempts/mine', undefined, me)).json()
+    assert.deepEqual(mine.map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
     const board = await (await call(env, '/api/attempts', undefined, me)).json()
-    assert.deepEqual(board.map(r => [r.mode, r.timeLimitMs]).sort(), [['bonds-10', null], ['table-7', 60000]])
+    assert.deepEqual(board.map(r => [r.mode, r.timeLimitMs]), [['table-7', 60000]])
   } finally { env.sqlite.close() }
 })
 
@@ -213,5 +215,21 @@ test('grown-ups follow a learner with a single-use code and see rounds but not p
     assert.equal((await call(env, '/api/family/unlink', { id: (await (await call(env, '/api/auth/me', undefined, parent)).json()).user.id }, child)).status, 200)
     assert.equal((await (await call(env, '/api/family', undefined, parent)).json()).children.length, 0)
     assert.ok(childId)
+  } finally { env.sqlite.close() }
+})
+
+test('the star board shows only each explorer\'s best round', async () => {
+  const env = database()
+  try {
+    const ada = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Ada', email: 'ada@example.test' }))
+    const ben = cookie(await call(env, '/api/auth/register', { ...fields, name: 'Ben', email: 'ben@example.test' }))
+    const round = (right, durationMs, total = 10) => ({ total, right, max: 20, ops: ['+'], durationMs })
+    for (const r of [round(6, 1000), round(9, 9000), round(9, 5000), round(4, 1000)]) assert.equal((await call(env, '/api/attempts', r, ada)).status, 201)
+    for (const r of [round(8, 2000), round(10, 30000, 20)]) assert.equal((await call(env, '/api/attempts', r, ben)).status, 201)
+    env.sqlite.exec("INSERT INTO attempts (name, started_at, ended_at, ops, max_result, correct, total) VALUES ('Old Timer', 0, 1000, '+', 10, 3, 5), ('Old Timer', 0, 1000, '+', 10, 5, 5)")
+    const board = await (await call(env, '/api/attempts', undefined, ada)).json()
+    assert.deepEqual(board.map(r => [r.name, r.right, r.total, r.endedAt - r.startedAt]), [['Old Timer', 5, 5, 1000], ['Ada', 9, 10, 5000], ['Ben', 8, 10, 2000]])
+    assert.deepEqual(board.map(r => r.mine), [false, true, false])
+    assert.equal((await (await call(env, '/api/attempts/mine', undefined, ada)).json()).length, 4)
   } finally { env.sqlite.close() }
 })
