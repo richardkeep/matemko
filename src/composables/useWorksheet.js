@@ -42,9 +42,14 @@ export function useWorksheet(user) {
     if (checked.value || !name.value.trim() || !answered.value) return
     endedAt.value = performance.now()
     const right = equations.value.filter((equation, index) => isCorrect(equation, answers.value[index])).length
-    result.value = { right, total: equations.value.length, percent: Math.round(right / equations.value.length * 100), durationMs: Math.max(0, Math.round(elapsed.value)) }
+    const durationMs = Math.max(0, Math.round(elapsed.value))
+    result.value = { right, total: equations.value.length, percent: Math.round(right / equations.value.length * 100), durationMs }
     checked.value = true
-    pendingAttempt = { name: name.value.trim(), max: max.value, ops: [...new Set(equations.value.map(equation => equation.op))], right, total: equations.value.length, durationMs: Math.min(86400000, result.value.durationMs), problems: equations.value.map((equation, index) => ({ ...equation, answer: String(answers.value[index]).trim() })) }
+    pendingAttempt = {
+      name: name.value.trim(), max: max.value, ops: [...new Set(equations.value.map(equation => equation.op))], right, total: equations.value.length,
+      durationMs: Math.min(86400000, durationMs),
+      problems: equations.value.map((equation, index) => ({ a: equation.a, op: equation.op, b: equation.b, c: equation.c, hide: equation.hide, answer: String(answers.value[index]).trim() })),
+    }
     void save()
   }
   const beforeUnload = event => { if (inProgress.value) event.preventDefault() }
