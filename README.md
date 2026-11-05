@@ -2,9 +2,7 @@
 
 Playful maths practice for young explorers, built with Vue 3 and Vite.
 
-**Live:** https://maths.ricnovasoftware.com/
-
-**Worker:** https://maths.r-kipsang.workers.dev/
+**Live:** https://easy-math.ricnovasoftware.com/
 
 ## Learning and play
 
